@@ -18,7 +18,7 @@ except:
     version = "100k"
 
 X = load_movielens(version)
-print X.shape
+print(X.shape)
 
 alphas = np.logspace(-3, 0, 10)
 mf_scores = []

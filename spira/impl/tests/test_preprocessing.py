@@ -16,7 +16,7 @@ X = np.array(X, dtype=np.float64)
 
 def _mean_axis1(X):
     mean = []
-    for i in xrange(X.shape[0]):
+    for i in range(X.shape[0]):
         x = X[i]
         x = x[x != 0]
         mean.append(np.mean(x))
@@ -25,7 +25,7 @@ def _mean_axis1(X):
 
 def _std_axis1(X):
     std = []
-    for i in xrange(X.shape[0]):
+    for i in range(X.shape[0]):
         x = X[i]
         x = x[x != 0]
         std.append(np.std(x))
@@ -36,7 +36,7 @@ def _std_axis1(X):
 
 def _mean_axis0(X):
     mean = []
-    for j in xrange(X.shape[1]):
+    for j in range(X.shape[1]):
         x = X[:, j]
         x = x[x != 0]
         mean.append(np.mean(x))
@@ -45,7 +45,7 @@ def _mean_axis0(X):
 
 def _std_axis0(X):
     std = []
-    for j in xrange(X.shape[1]):
+    for j in range(X.shape[1]):
         x = X[:, j]
         x = x[x != 0]
         std.append(np.std(x))
@@ -60,8 +60,8 @@ def test_center_std_axis1():
     mean = _mean_axis1(X)
     std = _std_axis1(X)
 
-    for i in xrange(X.shape[0]):
-        for j in xrange(X.shape[1]):
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
             if X[i, j] == 0:
                 continue
             X_t[i, j] -= mean[i]
@@ -82,8 +82,8 @@ def test_center_std_axis0():
     mean = _mean_axis0(X)
     std = _std_axis0(X)
 
-    for i in xrange(X.shape[0]):
-        for j in xrange(X.shape[1]):
+    for i in range(X.shape[0]):
+        for j in range(X.shape[1]):
             if X[i, j] == 0:
                 continue
             X_t[i, j] -= mean[j]

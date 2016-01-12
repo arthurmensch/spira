@@ -7,13 +7,13 @@ from scipy.linalg import solve
 
 # FIXME: don't depend on scikit-learn.
 from sklearn.base import BaseEstimator
+from sklearn.linear_model import ridge_regression
 
 from .matrix_fact_fast import _cd_fit, _predict
 from ..metrics import rmse
 
 
 class ExplicitMF(BaseEstimator):
-
     def __init__(self, alpha=1.0, n_components=30, max_iter=10, tol=1e-3,
                  callback=None, random_state=None, verbose=0):
         self.alpha = alpha
@@ -66,7 +66,6 @@ class ExplicitMF(BaseEstimator):
 
 
 class ImplicitMF(BaseEstimator):
-
     def __init__(self, alpha=1.0, n_components=30, max_iter=10, tol=1e-3,
                  callback=None, random_state=None, verbose=0):
         self.alpha = alpha
@@ -89,7 +88,7 @@ class ImplicitMF(BaseEstimator):
         rng = np.random.RandomState(self.random_state)
         self.P_, self.Q_ = self._init(X, rng)
 
-        for it in xrange(self.max_iter):
+        for it in range(self.max_iter):
             PX = self.P_.T * X  # sparse dot
             PP = np.dot(self.P_.T, self.P_)
             PP.flat[::PP.shape[0] + 1] += self.alpha

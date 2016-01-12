@@ -20,7 +20,7 @@ class ShuffleSplit(object):
         n_data = len(X.data)
         n_train = int(self.train_size * n_data)
 
-        for it in xrange(self.n_iter):
+        for it in range(self.n_iter):
             ind = rng.permutation(n_data)
             train_ind = ind[:n_train]
             test_ind = ind[n_train:]
@@ -39,7 +39,7 @@ class ShuffleSplit(object):
 def train_test_split(X, train_size=0.75, random_state=None):
     cv = ShuffleSplit(n_iter=1, train_size=train_size,
                       random_state=random_state)
-    return cv.split(X).next()
+    return next(cv.split(X))
 
 
 def cross_val_score(estimator, X, cv, metric=None):

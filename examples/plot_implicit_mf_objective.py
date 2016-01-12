@@ -29,7 +29,7 @@ def error(X, P, Q):
     #error -= 2 * np.dot(Q.T.ravel(), XP.ravel())
     error += np.trace(np.dot(Q, QPP))
     #error += np.dot(Q.T.ravel(), QPP.ravel())
-    print error
+    print(error)
     return error
 
 
@@ -63,7 +63,7 @@ except:
     version = "100k"
 
 X = load_movielens(version)
-print X.shape
+print(X.shape)
 
 # Binarize and pretend this is implicit feedback.
 cond = X.data > X.data.mean()
