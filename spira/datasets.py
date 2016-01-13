@@ -35,3 +35,10 @@ def load_movielens(version):
 
     X = joblib.load(path)
     return X
+
+def load_netflix():
+    path = os.path.join(data_home, "netflix", "netflix.pkl")
+    X = joblib.load(path)
+    probe = os.path.join(data_home, "netflix", "netflix.pkl")
+    X = joblib.load(path)
+    return X

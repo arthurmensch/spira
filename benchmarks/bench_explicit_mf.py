@@ -11,7 +11,7 @@ except:
     version = "100k"
 
 X = load_movielens(version)
-print X.shape
+print(X.shape)
 
 X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
 
@@ -19,5 +19,5 @@ start = time.time()
 mf = ExplicitMF(n_components=30, max_iter=10, alpha=1e-1, random_state=0,
                 verbose=1)
 mf.fit(X_tr)
-print "Time", time.time() - start
-print "RMSE", mf.score(X_te)
+print("Time", time.time() - start)
+print("RMSE", mf.score(X_te))

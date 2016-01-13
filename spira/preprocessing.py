@@ -20,7 +20,7 @@ class StandardScaler(object):
         self.with_std = with_std
         self.copy = copy
 
-    def fit(self, X):
+    def fit(self, X, y=None):
         X = sp.csr_matrix(X)
 
         if self.axis == 1:
@@ -49,7 +49,7 @@ class StandardScaler(object):
 
         return X
 
-    def transform(self, X):
+    def transform(self, X, y=None):
         X = self._check_data(X)
 
         _transform_csr(X, self.mean_, self.std_, self.with_mean, self.with_std,
@@ -57,7 +57,7 @@ class StandardScaler(object):
 
         return X
 
-    def fit_transform(self, X):
+    def fit_transform(self, X, y=None):
         return self.fit(X).transform(X)
 
     def inverse_transform(self, X):

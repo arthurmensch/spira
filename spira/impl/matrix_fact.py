@@ -7,7 +7,6 @@ from scipy.linalg import solve
 
 # FIXME: don't depend on scikit-learn.
 from sklearn.base import BaseEstimator
-from sklearn.linear_model import ridge_regression
 
 from .matrix_fact_fast import _cd_fit, _predict
 from ..metrics import rmse

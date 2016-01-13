@@ -1,24 +1,28 @@
-from math import sqrt
-
+import itertools
 import numpy as np
+import scipy
 import scipy.sparse as sp
 from numba import jit
 from scipy import linalg
 
 from sklearn.base import BaseEstimator
-from sklearn.linear_model import ridge_regression
-from sklearn.utils import check_random_state
-from sklearn_recommender.base import csr_center_data
+from sklearn.utils import check_random_state, gen_batches
+from spira.impl.dataset import mean
+from spira.impl.dict_fact_fast import _update_dict_fast, _online_dl_fast
 from spira.impl.matrix_fact_fast import _predict
 from spira.metrics import rmse
 
+import scipy.linalg as sp_linalg
+
 
 class DictMF(BaseEstimator):
-    def __init__(self, alpha=1.0, learning_rate=1,
+    def __init__(self, alpha=1.0, learning_rate=1.,
                  n_components=30, n_epochs=2,
                  normalize=False,
                  fit_intercept=False,
-                 callback=None, random_state=None, verbose=0):
+                 callback=None, random_state=None, verbose=0,
+                 batch_size=1):
+        self.batch_size = batch_size
         self.fit_intercept = fit_intercept
         self.normalize = normalize
         self.callback = callback
@@ -38,11 +42,13 @@ class DictMF(BaseEstimator):
         # Q dictionary
         Q = np.empty((self.n_components, n_cols), order='F')
         if self.fit_intercept:
-            # Intercept on first col
+            # Intercept on first line
             Q[0] = 1
-            Q[1:] = random_state.randn(self.n_components - 1, n_cols)
+            Q[1:] = random_state.randn(self.n_components - 1,
+                                       n_cols)  # + mean(X, 0)[np.newaxis, :]
         else:
-            Q[:] = random_state.randn(self.n_components, n_cols)
+            Q[:] = random_state.randn(self.n_components,
+                                      n_cols)  # + mean(X, 0)[np.newaxis, :]
 
         S = np.sqrt(np.sum(Q ** 2, axis=1))
         Q /= S[:, np.newaxis]
@@ -56,7 +62,7 @@ class DictMF(BaseEstimator):
                       n_cols,
                       self.alpha, self.P_, self.Q_)
 
-    def fit(self, X):
+    def fit(self, X, y=None):
         X = sp.csr_matrix(X, dtype=np.float64)
         n_rows, n_cols = X.shape
 
@@ -69,65 +75,29 @@ class DictMF(BaseEstimator):
         self.B_ = np.zeros((self.n_components, n_cols), order="F")
 
         self.seen_rows_ = 0
-        self.seen_cols_ = np.zeros(n_cols)
+        self.seen_cols_ = np.zeros(n_cols, dtype=np.int32)
         self.n_iter_ = 0
 
         if self.normalize:
-            (X, self.global_mean_,
-             self.row_mean_, self.col_mean_) = csr_center_data(X)
+            (X, self.row_mean_, self.col_mean_) = csr_center_data(X)
 
-        row_range = np.arange(n_rows)
-        for k in range(self.n_epochs):
-            random_state.shuffle(row_range)
-            for j in row_range:
+        _online_dl(X.data, X.indices, X.indptr, n_cols,
+                   float(self.alpha), float(self.learning_rate),
+                   self.A_, self.B_,
+                   self.seen_rows_, self.seen_cols_,
+                   self.n_iter_,
+                   self.P_, self.Q_,
+                   self.fit_intercept,
+                   self.n_epochs,
+                   self.batch_size,
+                   random_state,
+                   self.verbose,
+                   self._callback)
+        _online_refit(X.data, X.indices, X.indptr,
+                      n_cols,
+                      self.alpha, self.P_, self.Q_)
+        self._callback()
 
-                idx_range = slice(X.indptr[j], X.indptr[j + 1])
-                idx = X.indices[idx_range]
-                y = X.data[idx_range]
-                col_nnz = len(idx)
-
-                if col_nnz != 0:
-                    self.P_[j] = ridge_regression(self.Q_[:, idx].T,
-                                                 y,
-                                                 2 * self.alpha
-                                                 * col_nnz / n_cols)
-
-                    self.seen_rows_ += 1
-                    self.seen_cols_[idx] += 1
-
-                    w_A = pow(self.seen_rows_, -self.learning_rate)
-                    w_B = np.power(self.seen_cols_[idx],
-                                   -self.learning_rate)[np.newaxis, :]
-
-                    self.A_ *= 1 - w_A
-                    self.A_ += np.outer(self.P_[j], self.P_[j]) * w_A
-                    self.B_[:, idx] *= 1 - w_B
-                    self.B_[:, idx] += np.outer(self.P_[j], y) * w_B
-
-                    _update_dict(
-                            self.Q_,
-                            self.A_,
-                            self.B_,
-                            idx,
-                            self.fit_intercept,
-                            np.random.randint(0, np.iinfo(np.uint32).max))
-
-                if self.verbose:
-                    if self.n_iter_ % 100 == 0:
-                        print("Iteration %i" % self.n_iter_)
-                        # self._refit_code(X)
-                        self._callback()
-                self.n_iter_ += 1
-
-
-                # random_seed = random_state.randint(0, np.iinfo(np.uint32).max)
-                # self.P_, self.Q_ = _online_dl(X.data, X.indices, X.indptr,
-                #                                 n_cols,
-                #                                 self.alpha, self.A_, self.B_,
-                #                                 self.seen_cols_, self.P_, self.Q_,
-                #                                 self.n_epochs,
-                #                                 random_seed, self.verbose,
-                #                                 self._callback)
     def _callback(self):
         if self.callback is not None:
             self.callback(self)
@@ -140,8 +110,7 @@ class DictMF(BaseEstimator):
         if self.normalize:
             for i in range(X.shape[0]):
                 out[X.indptr[i]:X.indptr[i + 1]] += self.row_mean_[i]
-            out += self.col_mean_.take(X.indices,
-                                       mode='clip') + self.global_mean_
+            out += self.col_mean_.take(X.indices, mode='clip')
 
         return sp.csr_matrix((out, X.indices, X.indptr), shape=X.shape)
 
@@ -151,8 +120,8 @@ class DictMF(BaseEstimator):
         return rmse(X, X_pred)
 
 
-@jit("void(f8[:], u4[:], u4[:], u4,"
-     "f8, f8[:, ::1], f8[::1, :])")
+# @jit("void(f8[:], u8[:], u8[:], u8,"
+#      "f8, f8[:, ::1], f8[::1, :])")
 def _online_refit(X_data, X_indices, X_indptr, n_cols,
                   alpha, P, Q):
     n_rows = len(X_indptr) - 1
@@ -164,54 +133,116 @@ def _online_refit(X_data, X_indices, X_indptr, n_cols,
         if col_nnz != 0:
             P[j] = _solve_cholesky(Q[:, idx].T,
                                    y,
-                                   alpha * col_nnz / n_cols)
+                                   2 * alpha * col_nnz / n_cols)
 
 
-@jit("pyobject(f8[:], u4[:], u4[:], u4,"
-     "f8, f8[:, ::1], f8[::1, :],"
-     "i8[:], f8[:, ::1], f8[::1, :], i8, u4, i1, pyobject)")
+# @jit("void(f8[:], u8[:], u8[:], u8,"
+#      "f8, f8,"
+#      "f8[:, :], f8[:, :], u8, u8[:], u8,"
+#      "f8[:, ::1], f8[::1, :],"
+#      "i1, u8, u8, u8, i1,"
+#      "pyobject)")
 def _online_dl(X_data, X_indices, X_indptr, n_cols,
-               alpha, A, B,
-               seen_cols, P, Q, n_epochs, random_seed, verbose, callback):
+               alpha, learning_rate,
+               A, B, seen_rows, seen_cols, n_iter,
+               P, Q,
+               fit_intercept, n_epochs, batch_size, random_state, verbose,
+               callback):
     n_rows = len(X_indptr) - 1
+    n_components = Q.shape[0]
 
-    np.random.seed(random_seed)
     row_range = np.arange(n_rows)
-    for k in n_epochs:
+
+    norm = np.zeros(n_components)
+    if not fit_intercept:
+        components_range = np.arange(n_components)
+    else:
+        components_range = np.arange(1, n_components)
+
+    for _ in range(n_epochs):
+        batches = gen_batches(n_rows, batch_size)
         np.random.shuffle(row_range)
-        for n_iter, j in enumerate(row_range):
-            n_iter += k * n_rows
-            idx_range = slice(X_indptr[j], X_indptr[j + 1])
-            idx = X_indices[idx_range]
-            y = X_data[idx_range]
-            col_nnz = len(idx)
+        for batch in batches:
+            row_batch = row_range[batch]
+            idx_list = []
+            # new_seen_cols[:] = 0
+            for j in row_batch:
+                idx = X_indices[X_indptr[j]:X_indptr[j + 1]]
+                col_nnz = len(idx)
+                if col_nnz != 0:
+                    idx_list.append(idx)
+                    x = X_data[X_indptr[j]:X_indptr[j + 1]]
+                    P[j] = _solve_cholesky(Q[:, idx].T, x,
+                                                   2 * alpha * col_nnz / n_cols)
+                    seen_rows += 1
+                    seen_cols[idx] += 1
+                    w_B = np.power(seen_cols[idx], - learning_rate)[
+                          np.newaxis, :]
+                    B[:, idx] *= 1 - w_B
+                    B[:, idx] += np.outer(P[j], x) * w_B
 
-            if col_nnz != 0:
-                P[j] = _solve_cholesky(Q[:, idx].T,
-                                       y,
-                                       alpha * col_nnz / n_cols)
+            len_batch = len(idx_list)
 
-                seen_cols[-1] += 1
-                seen_cols[idx] += 1
-                A *= 1 - 1. / sqrt(seen_cols[-1])
-                A += np.outer(P[j], P[j]) / sqrt(seen_cols[-1])
-                B[:, idx] *= (1 - 1 / np.sqrt(seen_cols[idx]))[np.newaxis, :]
-                B[:, idx] += np.outer(P[j], y) * (1 / np.sqrt(seen_cols[idx]))[
-                                                 np.newaxis, :]
-                Q[:, idx] = _update_dict(Q[:, idx],
-                                         A,
-                                         B[:, idx],
-                                         np.random.randint(0, np.iinfo(
-                                                 np.uint32).max))
+            if len_batch > 1:
+                idx = np.unique(np.concatenate(idx_list))
+            elif len_batch == 1:
+                idx = idx_list[0]
+            else:
+                continue
+
+            if len(idx) > 0:
+                w_A = pow(seen_rows, -learning_rate)
+                A *= 1 - w_A * len_batch
+                A += P[row_batch].T.dot(P[row_batch]) * w_A
+
+                Q_idx = Q[:, idx]
+                R = B[:, idx] - np.dot(A, Q_idx)
+                Q_idx = np.asfortranarray(Q_idx)
+
+                random_state.shuffle(components_range)
+                _update_dict_fast(
+                        Q_idx,
+                        A,
+                        R,
+                        fit_intercept,
+                        components_range,
+                        norm)
+                Q[:, idx] = Q_idx
+
             if verbose:
-                if n_iter % 500 == 0:
-                    print("Iteration %i" % n_iter)
+                if n_iter % (20000 / batch_size) == 0:
+                    print("Iteration %i" % (n_iter * batch_size))
                     callback()
+            n_iter += 1
 
-    return A, B, seen_cols, P, Q
+
+def _sample(X_data, X_indices, X_indptr, n_cols, row_batch):
+    len_batch = len(row_batch)
+    if len_batch == 1:
+        j = row_batch[0]
+        y = X_data[X_indptr[j]:X_indptr[j+1]][np.newaxis, :]
+        idx = X_indices[X_indptr[j]:X_indptr[j+1]]
+        counts = np.ones(len(idx), dtype='i4')
+    else:
+        counts = np.zeros(n_cols, dtype='i4')
+        position_array = np.zeros(n_cols, dtype='i4')
+
+        idx = np.array([], dtype='i4')
+        for j in row_batch:
+            counts[X_indices[X_indptr[j]:X_indptr[j + 1]]] += 1
+            idx = np.union1d(idx, X_indices[X_indptr[j]:X_indptr[j + 1]])
+        idx = np.sort(idx)
+        counts = counts[idx]
+        position_array[idx] = np.arange(len(idx))
+
+        y = np.zeros((len_batch, len(idx)))
+        for j_idx, j in enumerate(row_batch):
+            position = position_array[X_indices[X_indptr[j]:
+                                                   X_indptr[ j + 1]]]
+            y[j_idx, position] = X_data[X_indptr[j]:X_indptr[j + 1]]
+    return y, idx, counts
 
 
-@jit("f8[:](f8[:, :], f8[:], f8)")
 def _solve_cholesky(X, y, alpha):
     _, n_features = X.shape
     A = X.T.dot(X)
@@ -221,17 +252,36 @@ def _solve_cholesky(X, y, alpha):
                         overwrite_a=True).T
 
 
-@jit("f8[:, :](f8[::1, :], f8[:, ::1], u4[:], f8[::1, :], i1, u4)")
-def _update_dict(Q, A, B, idx, fit_intercept, random_seed):
+def csr_center_data(X, inplace=False):
+    if not inplace:
+        X = X.copy()
+
+    acc_u = np.zeros(X.shape[0])
+    acc_m = np.zeros(X.shape[1])
+
+    n_u = X.getnnz(axis=1)
+    n_m = X.getnnz(axis=0)
+    n_u[n_u == 0] = 1
+    n_m[n_m == 0] = 1
+    for i in range(2):
+        w_u = X.sum(axis=1).A[:, 0] / n_u
+        for i, (left, right) in enumerate(zip(X.indptr[:-1], X.indptr[1:])):
+            X.data[left:right] -= w_u[i]
+        w_m = X.sum(axis=0).A[0] / n_m
+        X.data -= w_m.take(X.indices, mode='clip')
+        acc_u += w_u
+        acc_m += w_m
+
+    return X, acc_u, acc_m
+
+
+# TODO: move to test to compare with _update_dict_fast
+def _update_dict(Q, A, R,
+                 fit_intercept, random_seed):
     n_components = Q.shape[0]
-    np.random.seed(random_seed)
+    norm = np.sqrt(np.sum(Q ** 2, axis=1))
 
-    norm = np.empty(n_components)
-    for j in range(n_components):
-        norm[j] = np.sqrt(np.sum(Q[j, idx] ** 2))
-        if norm[j] == 0:
-            norm[j] = 1
-
+    ger, = linalg.get_blas_funcs(('ger',), (A, Q))
     # Intercept on first column
     if fit_intercept:
         components_range = np.arange(1, n_components)
@@ -239,7 +289,11 @@ def _update_dict(Q, A, B, idx, fit_intercept, random_seed):
         components_range = np.arange(n_components)
     np.random.shuffle(components_range)
     for j in components_range:
-        Q[j, idx] += (B[j, idx] - np.dot(A[j], Q[:, idx])) / A[j, j]
-        new_norm = np.sqrt(np.sum(Q[j, idx] ** 2))
+        ger(1.0, A[j], Q[j], a=R, overwrite_a=True)
+        Q[j] = R[j] / A[j, j]
+        new_norm = np.sqrt(np.sum(Q[j] ** 2))
         if new_norm > norm[j]:
-            Q[j, idx] /= new_norm / norm[j]
+            Q[j] /= new_norm / norm[j]
+        ger(-1.0, A[j], Q[j], a=R, overwrite_a=True)
+
+    return Q

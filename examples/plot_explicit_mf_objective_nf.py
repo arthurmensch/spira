@@ -1,6 +1,7 @@
 # Author: Mathieu Blondel
 # License: BSD
 
+from joblib import load, delayed, Parallel
 import time
 import sys
 
@@ -61,37 +62,48 @@ X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
 X_tr = X_tr.tocsr()
 X_te = X_te.tocsr()
 
-# mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,
-#                 callback=cb)
+# X_tr = load('/volatile/arthur/spira_data/nf_prize/X_tr.pkl')
+# X_te = load('/volatile/arthur/spira_data/nf_prize/X_te.pkl')
+
+# print(X_tr.shape)
+
 cb = Callback(X_tr, X_te)
+mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,
+                callback=cb)
 mf = DictMF(n_components=30, n_epochs=1, alpha=1, verbose=1,
-            batch_size=10,
+            batch_size=1,
             callback=cb, normalize=True,
             fit_intercept=True,
             learning_rate=1)
 
 mf.fit(X_tr)
 
-plt.figure()
-plt.plot(cb.times, cb.obj)
-plt.xlabel("CPU time")
-plt.xscale("log")
-plt.ylabel("Objective value")
+def call(alpha):
+    mf.set_params(alpha=alpha)
+    mf.fit(X_tr)
 
-plt.savefig('objective.pdf')
-
-plt.figure()
-plt.plot(cb.times, cb.rmse)
-plt.xlabel("CPU time")
-plt.xscale("log")
-plt.ylabel("RMSE")
-
-plt.savefig('RMSE.pdf')
+# Parallel(n_jobs=8)(delayed(call)(alpha) for alpha in np.logspace(5, 10, 6))
 
 # plt.figure()
-# plt.plot(cb.times, np.row_stack(cb.q_values), marker='o')
+# plt.plot(cb.times, cb.obj)
 # plt.xlabel("CPU time")
 # plt.xscale("log")
-# plt.ylabel("Q values")
-
-plt.savefig('Q_values.pdf')
+# plt.ylabel("Objective value")
+#
+# plt.savefig('objective.pdf')
+#
+# plt.figure()
+# plt.plot(cb.times, cb.rmse)
+# plt.xlabel("CPU time")
+# plt.xscale("log")
+# plt.ylabel("RMSE")
+#
+# plt.savefig('RMSE.pdf')
+#
+# # plt.figure()
+# # plt.plot(cb.times, np.row_stack(cb.q_values), marker='o')
+# # plt.xlabel("CPU time")
+# # plt.xscale("log")
+# # plt.ylabel("Q values")
+#
+# plt.savefig('Q_values.pdf')

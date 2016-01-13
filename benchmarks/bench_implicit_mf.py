@@ -12,7 +12,7 @@ except:
     version = "100k"
 
 X = load_movielens(version)
-print X.shape
+print(X.shape)
 
 # Binarize and pretend this is implicit feedback.
 cond = X.data > X.data.mean()
@@ -25,6 +25,6 @@ start = time.time()
 mf = ImplicitMF(n_components=30, max_iter=10, alpha=1e-1, random_state=0,
                 verbose=1)
 mf.fit(X_tr)
-print "Time", time.time() - start
+print("Time", time.time() - start)
 X_score = mf.decision_function(X_te)
-print "Average Precision", average_precision(X_te, X_score)
+print("Average Precision", average_precision(X_te, X_score))
