@@ -81,11 +81,10 @@ class DictMF(BaseEstimator):
         if self.normalize:
             (X, self.row_mean_, self.col_mean_) = csr_center_data(X)
 
-        _online_dl(X.data, X.indices, X.indptr, n_cols,
+        _online_dl(X.data, X.indices, X.indptr, n_rows, n_cols,
                    float(self.alpha), float(self.learning_rate),
                    self.A_, self.B_,
-                   self.seen_rows_, self.seen_cols_,
-                   self.n_iter_,
+                   self.seen_rows_, self.seen_cols_, self.n_iter_,
                    self.P_, self.Q_,
                    self.fit_intercept,
                    self.n_epochs,
@@ -136,13 +135,48 @@ def _online_refit(X_data, X_indices, X_indptr, n_cols,
                                    2 * alpha * col_nnz / n_cols)
 
 
+def _update_code(X_data, X_indices, X_indptr, n_cols, n_rows,
+                 alpha, learning_rate,
+                 A, B, seen_rows, seen_cols,
+                 P, Q, row_batch):
+    idx_list = []
+    row_nnz_list = []
+    for j in row_batch:
+        idx = X_indices[X_indptr[j]:X_indptr[j + 1]]
+        col_nnz = len(idx)
+        if col_nnz != 0:
+            idx_list.append(idx)
+            row_nnz_list.append(j)
+            x = X_data[X_indptr[j]:X_indptr[j + 1]]
+            P[j] = _solve_cholesky(Q[:, idx].T, x,
+                                   2 * alpha * col_nnz / n_cols)
+            seen_rows += 1
+            seen_cols[idx] += 1
+            w_B = np.power(seen_cols[idx], - learning_rate)[
+                  np.newaxis, :]
+            B[:, idx] *= 1 - w_B
+            B[:, idx] += np.outer(P[j], x) * w_B
+
+    len_row_nnz = len(row_nnz_list)
+
+    if len_row_nnz >= 1:
+        w_A = pow(seen_rows, -learning_rate)
+        A *= 1 - w_A * len_row_nnz
+        A += P[row_nnz_list].T.dot(P[row_nnz_list]) * w_A
+        if len_row_nnz > 1:
+            idx = np.unique(np.concatenate(idx_list))
+        elif len_row_nnz == 1:
+            idx = idx_list[0]
+    return idx, seen_rows
+
+
 # @jit("void(f8[:], u8[:], u8[:], u8,"
 #      "f8, f8,"
 #      "f8[:, :], f8[:, :], u8, u8[:], u8,"
 #      "f8[:, ::1], f8[::1, :],"
 #      "i1, u8, u8, u8, i1,"
 #      "pyobject)")
-def _online_dl(X_data, X_indices, X_indptr, n_cols,
+def _online_dl(X_data, X_indices, X_indptr, n_cols, n_rows,
                alpha, learning_rate,
                A, B, seen_rows, seen_cols, n_iter,
                P, Q,
@@ -164,37 +198,14 @@ def _online_dl(X_data, X_indices, X_indptr, n_cols,
         np.random.shuffle(row_range)
         for batch in batches:
             row_batch = row_range[batch]
-            idx_list = []
-            # new_seen_cols[:] = 0
-            for j in row_batch:
-                idx = X_indices[X_indptr[j]:X_indptr[j + 1]]
-                col_nnz = len(idx)
-                if col_nnz != 0:
-                    idx_list.append(idx)
-                    x = X_data[X_indptr[j]:X_indptr[j + 1]]
-                    P[j] = _solve_cholesky(Q[:, idx].T, x,
-                                                   2 * alpha * col_nnz / n_cols)
-                    seen_rows += 1
-                    seen_cols[idx] += 1
-                    w_B = np.power(seen_cols[idx], - learning_rate)[
-                          np.newaxis, :]
-                    B[:, idx] *= 1 - w_B
-                    B[:, idx] += np.outer(P[j], x) * w_B
 
-            len_batch = len(idx_list)
-
-            if len_batch > 1:
-                idx = np.unique(np.concatenate(idx_list))
-            elif len_batch == 1:
-                idx = idx_list[0]
-            else:
-                continue
+            idx, seen_rows = _update_code(X_data, X_indices, X_indptr, n_cols,
+                                          n_rows,
+                                          alpha, learning_rate,
+                                          A, B, seen_rows, seen_cols,
+                                          P, Q, row_batch)
 
             if len(idx) > 0:
-                w_A = pow(seen_rows, -learning_rate)
-                A *= 1 - w_A * len_batch
-                A += P[row_batch].T.dot(P[row_batch]) * w_A
-
                 Q_idx = Q[:, idx]
                 R = B[:, idx] - np.dot(A, Q_idx)
                 Q_idx = np.asfortranarray(Q_idx)
@@ -210,9 +221,9 @@ def _online_dl(X_data, X_indices, X_indptr, n_cols,
                 Q[:, idx] = Q_idx
 
             if verbose:
-                if n_iter % (20000 / batch_size) == 0:
+                if n_iter % (1000 / batch_size) == 0:
                     print("Iteration %i" % (n_iter * batch_size))
-                    callback()
+                    # callback()
             n_iter += 1
 
 
@@ -220,8 +231,8 @@ def _sample(X_data, X_indices, X_indptr, n_cols, row_batch):
     len_batch = len(row_batch)
     if len_batch == 1:
         j = row_batch[0]
-        y = X_data[X_indptr[j]:X_indptr[j+1]][np.newaxis, :]
-        idx = X_indices[X_indptr[j]:X_indptr[j+1]]
+        y = X_data[X_indptr[j]:X_indptr[j + 1]][np.newaxis, :]
+        idx = X_indices[X_indptr[j]:X_indptr[j + 1]]
         counts = np.ones(len(idx), dtype='i4')
     else:
         counts = np.zeros(n_cols, dtype='i4')
@@ -238,7 +249,7 @@ def _sample(X_data, X_indices, X_indptr, n_cols, row_batch):
         y = np.zeros((len_batch, len(idx)))
         for j_idx, j in enumerate(row_batch):
             position = position_array[X_indices[X_indptr[j]:
-                                                   X_indptr[ j + 1]]]
+            X_indptr[j + 1]]]
             y[j_idx, position] = X_data[X_indptr[j]:X_indptr[j + 1]]
     return y, idx, counts
 

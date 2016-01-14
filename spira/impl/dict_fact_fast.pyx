@@ -44,6 +44,7 @@ cpdef void _update_dict_fast(double[:, :] Q, double[:, :] A, double[:, :] R,
 
     for idx in range(components_range_len):
         j = components_range[idx]
+        norm[j] = 0
         for k in range(n_cols):
             norm[j] += Q[j, k] * Q[j, k]
         norm[j] = sqrt(norm[j])

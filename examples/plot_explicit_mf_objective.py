@@ -64,8 +64,8 @@ X_te = X_te.tocsr()
 # mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,
 #                 callback=cb)
 cb = Callback(X_tr, X_te)
-mf = DictMF(n_components=30, n_epochs=1, alpha=1, verbose=1,
-            batch_size=10,
+mf = DictMF(n_components=30, n_epochs=2, alpha=1, verbose=1,
+            batch_size=2,
             callback=cb, normalize=True,
             fit_intercept=True,
             learning_rate=1)

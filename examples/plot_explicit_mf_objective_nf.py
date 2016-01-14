@@ -55,17 +55,16 @@ except:
     version = "10m"
 
 X = load_movielens(version)
-# X = X.T
 print(X.shape)
 
-X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
-X_tr = X_tr.tocsr()
-X_te = X_te.tocsr()
+# X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
+# X_tr = X_tr.tocsr()
+# X_te = X_te.tocsr()
 
-# X_tr = load('/volatile/arthur/spira_data/nf_prize/X_tr.pkl')
-# X_te = load('/volatile/arthur/spira_data/nf_prize/X_te.pkl')
+X_tr = load('/volatile/arthur/spira_data/nf_prize/X_tr.pkl')
+X_te = load('/volatile/arthur/spira_data/nf_prize/X_te.pkl')
 
-# print(X_tr.shape)
+print(X_tr.shape)
 
 cb = Callback(X_tr, X_te)
 mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,
@@ -82,28 +81,28 @@ def call(alpha):
     mf.set_params(alpha=alpha)
     mf.fit(X_tr)
 
-# Parallel(n_jobs=8)(delayed(call)(alpha) for alpha in np.logspace(5, 10, 6))
+# Parallel(n_jobs=5)(delayed(call)(alpha) for alpha in np.logspace(-2, 2, 5))
+
+plt.figure()
+plt.plot(cb.times, cb.obj)
+plt.xlabel("CPU time")
+plt.xscale("log")
+plt.ylabel("Objective value")
+
+plt.savefig('objective.pdf')
+
+plt.figure()
+plt.plot(cb.times, cb.rmse)
+plt.xlabel("CPU time")
+plt.xscale("log")
+plt.ylabel("RMSE")
+
+plt.savefig('RMSE.pdf')
 
 # plt.figure()
-# plt.plot(cb.times, cb.obj)
+# plt.plot(cb.times, np.row_stack(cb.q_values), marker='o')
 # plt.xlabel("CPU time")
 # plt.xscale("log")
-# plt.ylabel("Objective value")
-#
-# plt.savefig('objective.pdf')
-#
-# plt.figure()
-# plt.plot(cb.times, cb.rmse)
-# plt.xlabel("CPU time")
-# plt.xscale("log")
-# plt.ylabel("RMSE")
-#
-# plt.savefig('RMSE.pdf')
-#
-# # plt.figure()
-# # plt.plot(cb.times, np.row_stack(cb.q_values), marker='o')
-# # plt.xlabel("CPU time")
-# # plt.xscale("log")
-# # plt.ylabel("Q values")
-#
+# plt.ylabel("Q values")
+
 # plt.savefig('Q_values.pdf')
