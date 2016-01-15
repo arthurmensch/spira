@@ -23,7 +23,7 @@ def test_matrix_fact_cd():
 
     mf.fit(X)
 
-    Y = np.dot(mf.P_, mf.Q_)
+    Y = np.dot(mf.P_.T, mf.Q_)
     Y2 = mf.predict(X).toarray()
 
     assert_array_almost_equal(Y, Y2)
@@ -45,7 +45,7 @@ def test_dict_fact_normalize():
 
     mf.fit(X)
 
-    Y = np.dot(mf.P_, mf.Q_)
+    Y = np.dot(mf.P_.T, mf.Q_)
     Y += mf.col_mean_[np.newaxis, :]
     Y += mf.row_mean_[:, np.newaxis]
     Y2 = mf.predict(X).toarray()

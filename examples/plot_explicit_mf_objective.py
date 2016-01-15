@@ -42,6 +42,9 @@ class Callback(object):
         rmse = np.sqrt(np.mean((X_pred.data - self.X_te.data) ** 2))
         print(rmse)
         self.rmse.append(rmse)
+
+        # print(mf.B_[0])
+        # print(mf.counter_)
         # self.q_values.append(mf.Q_[3, 0:100].copy())
 
         self.test_time += time.clock() - test_time
@@ -61,27 +64,30 @@ X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
 X_tr = X_tr.tocsr()
 X_te = X_te.tocsr()
 
-# mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,
-#                 callback=cb)
-cb = Callback(X_tr, X_te)
-mf = DictMF(n_components=30, n_epochs=3, alpha=1, verbose=1,
-            batch_size=1,
-            callback=cb, normalize=True,
+cb = {}
+cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,)
+dl_mf = DictMF(n_components=30, n_epochs=5, alpha=1, verbose=1,
+            batch_size=1, normalize=True,
             fit_intercept=True,
             learning_rate=1)
 
-mf.fit(X_tr)
+for mf in [dl_mf]:
+    cb[mf] = Callback(X_tr, X_te)
+    mf.set_params(callback=cb[mf])
+    mf.fit(X_tr)
+
+# plt.figure()
+# plt.plot(cb.times, cb.obj)
+# plt.xlabel("CPU time")
+# plt.xscale("log")
+# plt.ylabel("Objective value")
+#
+# plt.savefig('objective.pdf')
 
 plt.figure()
-plt.plot(cb.times, cb.obj)
-plt.xlabel("CPU time")
-plt.xscale("log")
-plt.ylabel("Objective value")
-
-plt.savefig('objective.pdf')
-
-plt.figure()
-plt.plot(cb.times, cb.rmse)
+for mf in [dl_mf]:
+    plt.plot(cb[mf].times, cb[mf].rmse)
+    plt.plot(cb[mf].times, cb[mf].rmse)
 plt.xlabel("CPU time")
 plt.xscale("log")
 plt.ylabel("RMSE")
@@ -94,4 +100,4 @@ plt.savefig('RMSE.pdf')
 # plt.xscale("log")
 # plt.ylabel("Q values")
 
-plt.savefig('Q_values.pdf')
+# plt.savefig('Q_values.pdf')

@@ -12,19 +12,19 @@ from libc.math cimport pow
 @cython.boundscheck(False)
 @cython.wraparound(False)
 @cython.cdivision(True)
-cdef _update_code(double[:] X_data, long[:] X_indices,
-                  long[:] X_indptr, int n_rows, int n_cols,
+cpdef int _update_code_fast(double[:] X_data, int[:] X_indices,
+                  int[:] X_indptr, long n_rows, long n_cols,
                   double alpha, double learning_rate,
                   double[::1, :] A, double[::1, :] B,
                   long[:] counter,
                   double[::1, :] P, double[::1, :] Q,
-                  int[:] row_batch,
+                  long[:] row_batch,
                   double[::1, :] Q_idx,
                   double[::1, :] P_batch,
-                  double[::1, 1] C,
-                  bint[:] idx_mask,
-                  int[:] idx_concat):
-    cdef int len_batch = row_batch.shape[0], n_components = P.shape[1]
+                  double[::1, :] C,
+                  char[:] idx_mask,
+                  long[:] idx_concat):
+    cdef int len_batch = row_batch.shape[0], n_components = P.shape[0]
     cdef double* Q_idx_ptr = &Q_idx[0, 0]
     cdef double* P_batch_ptr = &P_batch[0, 0]
     cdef double* Q_ptr = &Q[0, 0]
@@ -32,16 +32,20 @@ cdef _update_code(double[:] X_data, long[:] X_indices,
     cdef double* A_ptr = &A[0, 0]
     cdef double* B_ptr = &B[0, 0]
     cdef double* C_ptr = &C[0, 0]
-    cdef double* X_data_ptr = &X_data[0, 0]
-    cdef char up = 'U'
-    cdef bint true = True
-    cdef bint false = False
+    cdef double* X_data_ptr = &X_data[0]
+    cdef char UP = 'U'
+    cdef char NTRANS = 'N'
+    cdef char TRANS = 'T'
     cdef int zero = 0
     cdef int one = 1
     cdef int info = 0
     cdef double zerod = 0
     cdef double oned = 1
-    cdef int ii, jj, k, idx_in_B
+    cdef int ii, jj, i, j, k
+    cdef int nnz
+    cdef double reg
+    cdef int last = 0
+    cdef double w_B, w_A, mu_A
 
     for jj in range(n_cols):
         idx_mask[jj] = 0
@@ -49,60 +53,63 @@ cdef _update_code(double[:] X_data, long[:] X_indices,
     for ii in range(len_batch):
         i = row_batch[ii]
         nnz = X_indptr[i + 1] - X_indptr[i]
-        idx = X_indices[X_indptr[j]:X_indptr[i + 1]]
+        # print('Filling Q')
 
-        Q_idx[:, len_batch] = Q[:, idx]
+        for jj in range(nnz):
+            Q_idx[:, jj] = Q[:, X_indices[X_indptr[i] + jj]]
+        # print('Computing Gram')
 
-        # C = Q_idx.dot(Q_idx.T)
-        dgemm(&False, &True,
+        dgemm(&NTRANS, &TRANS,
               &n_components, &n_components, &nnz,
               &oned,
-              Q_idx_ptr, &one, &n_components,
-              Q_idx_ptr, &one, &n_components,
+              Q_idx_ptr, &n_components,
+              Q_idx_ptr, &n_components,
               &zerod,
               C_ptr, &n_components
               )
-
-        # Qx = Q_idx.dot(x)
-        dgemv(&False,
-              &n_components, &nnz,
-              &oned,
-              Q_idx_ptr, &1, &n_components,
-              X_data_ptr + X_indptr[i], &1,
-              &zerod,
-              P_batch_ptr + ii * n_components, &1
-              )
-
         # C.flat[::n_components + 1] += 2 * alpha * nnz / n_cols
         reg = 2 * alpha * nnz / n_cols
         for p in range(n_components):
             C[p, p] += reg
 
+        # print('Computing Q**T x')
+        # Qx = Q_idx.dot(x)
+        dgemv(&NTRANS,
+              &n_components, &nnz,
+              &oned,
+              Q_idx_ptr, &n_components,
+              X_data_ptr + X_indptr[i], &one,
+              &zerod,
+              P_batch_ptr + ii * n_components, &one
+              )
+
+
         # P[j] = linalg.solve(C, Qx, sym_pos=True,
         #                     overwrite_a=True, check_finite=False)
-        dposv(&up, &n_components, &1, C_ptr, &n_components,
+        # print('Solving linear system')
+        dposv(&UP, &n_components, &one, C_ptr, &n_components,
               P_batch_ptr + ii * n_components, &n_components,
               &info)
         if info != 0:
-            return -1
+            print('Linalg error')
 
         # w_B = np.power(counter[1][idx], - learning_rate)[np.newaxis, :]
         # B[:, idx] *= 1 - w_B
         # B[:, idx] += np.outer(P[j], x) * w_B
         for jj in range(nnz):
-            j = idx[jj]
+            j = X_indices[X_indptr[i] + jj]
             idx_mask[j] = 1
             counter[j + 1] += 1
-            w_B = pow(counter[idx_in_B + 1], -learning_rate)
+            w_B = pow(counter[j + 1], -learning_rate)
             for k in range(n_components):
-                B[k, j] = (1 - w_B) * B[k, idx] + \
-                                 w_B * P_batch[ii, k]\
+                B[k, j] = (1 - w_B) * B[k, j] + \
+                                 w_B * P_batch[k, ii]\
                                  * X_data[X_indptr[i] + jj]
+        P[:, i] = P_batch[:, ii]
 
-    last = 0
-    for i in range(n_cols):
-        if idx_mask[i]:
-            idx_concat[last] = i
+    for ii in range(n_cols):
+        if idx_mask[ii]:
+            idx_concat[last] = ii
             last += 1
 
     counter[0] += len_batch
@@ -111,11 +118,11 @@ cdef _update_code(double[:] X_data, long[:] X_indices,
 
     # A *= 1 - w_A * len_batch
     # A += P[row_batch].T.dot(P[row_batch]) * w_A
-    dgemm(&False, &True,
+    dgemm(&NTRANS, &TRANS,
           &n_components, &n_components, &len_batch,
           &w_A,
-          P_batch_ptr, &1, &n_components,
-          P_batch_ptr, &1, &n_components,
+          P_batch_ptr, &n_components,
+          P_batch_ptr, &n_components,
           &mu_A,
           A_ptr, &n_components)
 
