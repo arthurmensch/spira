@@ -36,14 +36,13 @@ class Callback(object):
 
         X_pred = mf.predict(self.X_tr)
         loss = sqnorm(X_pred.data - self.X_tr.data) / 2
-        regul = mf.alpha * (sqnorm(mf.P_))  #  + sqnorm(mf.Q_))
+        regul = mf.alpha * (sqnorm(mf.P_))  # + sqnorm(mf.Q_))
         self.obj.append(loss + regul)
 
         X_pred = mf.predict(self.X_te)
         rmse = np.sqrt(np.mean((X_pred.data - self.X_te.data) ** 2))
         print(rmse)
         self.rmse.append(rmse)
-        # self.q_values.append(mf.Q_[3, 0:100].copy())
 
         self.test_time += time.clock() - test_time
         self.times.append(time.clock() - self.start_time - self.test_time)
@@ -52,57 +51,44 @@ class Callback(object):
 try:
     version = sys.argv[1]
 except:
-    version = "10m"
+    version = "100k"
 
 X = load_movielens(version)
 print(X.shape)
 
-# X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
-# X_tr = X_tr.tocsr()
+X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
+X_tr = X_tr.tocsr()
+X_te = X_te.tocsr()
+#
+# X_tr = load('/volatile/arthur/spira_data/nf_prize/X_tr.pkl')
+# X_te = load('/volatile/arthur/spira_data/nf_prize/X_te.pkl')
+
+
+# _, X_te = train_test_split(X_te, train_size=0.9, random_state=0)
 # X_te = X_te.tocsr()
+#
+# print(X_tr.shape)
 
-X_tr = load('/volatile/arthur/spira_data/nf_prize/X_tr.pkl')
-X_te = load('/volatile/arthur/spira_data/nf_prize/X_te.pkl')
 
-print(X_tr.shape)
+def call(alpha, learning_rate):
+    cb = Callback(X_tr, X_te)
+    mf = DictMF(n_components=30, n_epochs=4, alpha=alpha, verbose=1,
+                normalize=True,
+                fit_intercept=True,
+                random_state=0,
+                learning_rate=learning_rate)
 
-cb = Callback(X_tr, X_te)
-mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,
-                callback=cb)
-mf = DictMF(n_components=30, n_epochs=1, alpha=1, verbose=1,
-            batch_size=1,
-            callback=cb, normalize=True,
-            fit_intercept=True,
-            learning_rate=1)
-
-mf.fit(X_tr)
-
-def call(alpha):
-    mf.set_params(alpha=alpha)
     mf.fit(X_tr)
+    X_pred = mf.predict(X_te)
+    rmse = np.sqrt(np.mean((X_pred.data - X_te.data) ** 2))
+    print('rmse %.2f: %.4f' % (.5, rmse))
+    return np.array([alpha, learning_rate, rmse])
 
-# Parallel(n_jobs=5)(delayed(call)(alpha) for alpha in np.logspace(-2, 2, 5))
 
-plt.figure()
-plt.plot(cb.times, cb.obj)
-plt.xlabel("CPU time")
-plt.xscale("log")
-plt.ylabel("Objective value")
+res = Parallel(n_jobs=40)(delayed(call)(alpha,
+                                        0.5) for alpha in
+                          np.logspace(-1, 3, 10)
+                          for learning_rate in np.linspace(.5, 1, 4))
 
-plt.savefig('objective.pdf')
-
-plt.figure()
-plt.plot(cb.times, cb.rmse)
-plt.xlabel("CPU time")
-plt.xscale("log")
-plt.ylabel("RMSE")
-
-plt.savefig('RMSE.pdf')
-
-# plt.figure()
-# plt.plot(cb.times, np.row_stack(cb.q_values), marker='o')
-# plt.xlabel("CPU time")
-# plt.xscale("log")
-# plt.ylabel("Q values")
-
-# plt.savefig('Q_values.pdf')
+res = np.concatenate(res)
+np.save(res, 'res')

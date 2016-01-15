@@ -11,6 +11,7 @@ from spira.cross_validation import ShuffleSplit
 from spira.cross_validation import cross_val_score
 from spira.completion import ExplicitMF
 from spira.completion import Dummy
+from spira.impl.dict_fact import DictMF
 
 try:
     version = sys.argv[1]
@@ -27,7 +28,12 @@ cv = ShuffleSplit(n_iter=3, train_size=0.75, random_state=0)
 
 for alpha in alphas:
     mf = ExplicitMF(n_components=30, max_iter=10, alpha=alpha)
-    mf_scores.append(cross_val_score(mf, X, cv))
+    # mf = DictMF(n_components=30, n_epochs=3, alpha=alpha, verbose=1,
+    #             batch_size=1, normalize=True,
+    #             fit_intercept=False,
+    #             random_state=0,
+    #             learning_rate=1)
+        mf_scores.append(cross_val_score(mf, X, cv))
 
 # Array of size n_alphas x n_folds.
 mf_scores = np.array(mf_scores)

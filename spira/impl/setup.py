@@ -28,12 +28,7 @@ def configuration(parent_package='', top_path=None):
 
     config.add_extension('dict_fact_fast',
                          sources=['dict_fact_fast.c'],
-                         libraries=cblas_libs,
-                         include_dirs=[join('..', 'src', 'cblas'),
-                                       numpy.get_include(),
-                                       blas_info.pop('include_dirs', [])],
-                         extra_compile_args=blas_info.pop('extra_compile_args',
-                                                          []), **blas_info)
+                         include_dirs=[numpy.get_include()])
 
     config.add_subpackage('tests')
 
