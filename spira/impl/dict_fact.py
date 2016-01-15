@@ -181,8 +181,7 @@ def _update_code_slow(X, alpha, learning_rate,
 
 
 def _update_dict(X, fit_intercept,
-                 A, B, P, Q, idx, components_range, norm):
-    Q_idx = Q[:, idx]
+                 A, B, P, Q_idx, idx, components_range, norm):
     R = B[:, idx] - np.dot(Q_idx.T, A).T
 
     _update_dict_fast(
@@ -202,8 +201,6 @@ def _online_dl(X,
                P, Q,
                fit_intercept, n_epochs, batch_size, random_state, verbose,
                callback):
-    n_components = Q.shape[0]
-
     row_nnz = X.getnnz(axis=1)
     max_idx_size = row_nnz.max() * batch_size
     row_range = row_nnz.nonzero()[0]
@@ -228,12 +225,6 @@ def _online_dl(X,
         random_state.shuffle(row_range)
         batches = gen_batches(len(row_range), batch_size)
         for batch in batches:
-            # Q_idx = np.zeros((n_components, max_idx_size), order='F')
-            # P_batch = np.zeros((n_components, batch_size), order='F')
-            # C = np.zeros((n_components, n_components), order='F')
-            # idx_mask = np.zeros(n_cols, dtype='i1')
-            # idx_concat = np.zeros(max_idx, dtype='int')
-
             row_batch = row_range[batch]
             last = _update_code_fast(X.data, X.indices,
                                      X.indptr, n_rows, n_cols,
@@ -249,11 +240,11 @@ def _online_dl(X,
                                      idx_concat)
             random_state.shuffle(components_range)
             _update_dict(X, fit_intercept,
-                         A, B, P, Q, idx_concat[:last], components_range,
+                         A, B, P, Q_idx, idx_concat[:last], components_range,
                          norm)
 
             if verbose:
-                if counter[0] % 50 == 0:
+                if counter[0] % 10000 == 0:
                     print("Iteration %i" % (counter[0]))
                     callback()
 
