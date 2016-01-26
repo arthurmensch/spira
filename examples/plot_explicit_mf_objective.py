@@ -1,17 +1,16 @@
 # Author: Mathieu Blondel
 # License: BSD
 
-import time
 import sys
+import time
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 
-from sklearn.pipeline import Pipeline
-from spira.datasets import load_movielens
-from spira.cross_validation import train_test_split
 from spira.completion import ExplicitMF, DictMF
-from spira.preprocessing import StandardScaler
+from spira.cross_validation import train_test_split
+from spira.datasets import load_movielens
+from spira.impl.dict_fact import csr_center_data
 
 
 def sqnorm(M):
@@ -20,22 +19,28 @@ def sqnorm(M):
 
 
 class Callback(object):
-    def __init__(self, X_tr, X_te):
+    def __init__(self, X_tr, X_te, refit=False):
         self.X_tr = X_tr
         self.X_te = X_te
         self.obj = []
         self.rmse = []
         self.times = []
-        # self.q_values = []
         self.start_time = time.clock()
         self.test_time = 0
+        self.refit = refit
 
     def __call__(self, mf):
         test_time = time.clock()
-
+        if self.refit:
+            if mf.normalize:
+                if not hasattr(self, 'X_tr_c_'):
+                    self.X_tr_c_, _, _ = csr_center_data(X_tr)
+                mf._refit_code(self.X_tr_c_)
+            else:
+                mf._refit_code(self.X_tr)
         X_pred = mf.predict(self.X_tr)
         loss = sqnorm(X_pred.data - self.X_tr.data) / 2
-        regul = mf.alpha * (sqnorm(mf.P_))  #  + sqnorm(mf.Q_))
+        regul = mf.alpha * (sqnorm(mf.P_))  # + sqnorm(mf.Q_))
         self.obj.append(loss + regul)
 
         X_pred = mf.predict(self.X_te)
@@ -65,16 +70,29 @@ X_tr = X_tr.tocsr()
 X_te = X_te.tocsr()
 
 cb = {}
-cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1,)
-dl_mf = DictMF(n_components=30, n_epochs=3, alpha=1, verbose=1,
-            batch_size=1, normalize=True,
-            fit_intercept=True,
-            learning_rate=1)
+cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=.05, normalize=True,
+                   verbose=1, )
+dl_mf_noimpute = DictMF(n_components=30, n_epochs=20, alpha=1, verbose=5,
+               batch_size=10, normalize=True,
+               fit_intercept=True,
+               random_state=0,
+               learning_rate=.5,
+               impute=False,
+               backend='c')
+dl_mf_impute = DictMF(n_components=30, n_epochs=20, alpha=.01, verbose=5,
+               batch_size=10, normalize=True,
+               fit_intercept=True,
+               random_state=0,
+               learning_rate=1,
+               impute=True,
+               backend='c')
 
-for mf in [dl_mf]:
-    cb[mf] = Callback(X_tr, X_te)
+mf_list = [dl_mf_impute]
+for mf in mf_list:
+    cb[mf] = Callback(X_tr, X_te, refit=True)
     mf.set_params(callback=cb[mf])
     mf.fit(X_tr)
+    print('Done')
 
 # plt.figure()
 # plt.plot(cb.times, cb.obj)
@@ -85,14 +103,17 @@ for mf in [dl_mf]:
 # plt.savefig('objective.pdf')
 
 plt.figure()
-for mf in [dl_mf]:
-    plt.plot(cb[mf].times, cb[mf].rmse)
-    plt.plot(cb[mf].times, cb[mf].rmse)
+label = ['No imputation', 'imputation']
+for i, mf in enumerate(mf_list):
+    plt.plot(cb[mf].times, cb[mf].rmse, label=label[i])
+    np.save(label[i] + 'rmse', cb[mf].rmse)
+    np.save(label[i] + 'time', cb[mf].rmse)
+plt.legend()
 plt.xlabel("CPU time")
 plt.xscale("log")
 plt.ylabel("RMSE")
 
-plt.savefig('RMSE.pdf')
+plt.savefig('RMSE_%s.pdf' % version)
 
 # plt.figure()
 # plt.plot(cb.times, np.row_stack(cb.q_values), marker='o')

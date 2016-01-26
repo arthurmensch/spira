@@ -1,18 +1,16 @@
 # Author: Mathieu Blondel
 # License: BSD
-
-from joblib import load, delayed, Parallel
+import datetime
+import os
 import time
-import sys
+from os.path import expanduser, join
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+from joblib import load
 
-from sklearn.pipeline import Pipeline
-from spira.datasets import load_movielens
-from spira.cross_validation import train_test_split
 from spira.completion import ExplicitMF, DictMF
-from spira.preprocessing import StandardScaler
+from spira.impl.dict_fact import csr_center_data
 
 
 def sqnorm(M):
@@ -21,19 +19,25 @@ def sqnorm(M):
 
 
 class Callback(object):
-    def __init__(self, X_tr, X_te):
+    def __init__(self, X_tr, X_te, refit=False):
         self.X_tr = X_tr
         self.X_te = X_te
         self.obj = []
         self.rmse = []
         self.times = []
-        # self.q_values = []
         self.start_time = time.clock()
         self.test_time = 0
+        self.refit = refit
 
     def __call__(self, mf):
         test_time = time.clock()
-
+        if self.refit:
+            if mf.normalize:
+                if not hasattr(self, 'X_tr_c_'):
+                    self.X_tr_c_, _, _ = csr_center_data(X_tr)
+                mf._refit_code(self.X_tr_c_)
+            else:
+                mf._refit_code(self.X_tr)
         X_pred = mf.predict(self.X_tr)
         loss = sqnorm(X_pred.data - self.X_tr.data) / 2
         regul = mf.alpha * (sqnorm(mf.P_))  # + sqnorm(mf.Q_))
@@ -47,48 +51,39 @@ class Callback(object):
         self.test_time += time.clock() - test_time
         self.times.append(time.clock() - self.start_time - self.test_time)
 
+X_tr = load(expanduser('~/spira_data/nf_prize/X_tr.pkl'))
+# X_tr = X_tr.T.tocsr()
+X_te = load(expanduser('~/spira_data/nf_prize/X_te.pkl'))
+# X_te = X_te.T.tocsr()
 
-try:
-    version = sys.argv[1]
-except:
-    version = "100k"
+cb = {}
+cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1, )
+dl_mf = DictMF(n_components=30, n_epochs=5, alpha=.3, verbose=10,
+               batch_size=400, normalize=True,
+               fit_intercept=True,
+               random_state=0,
+               learning_rate=1,
+               backend='c')
 
-X = load_movielens(version)
-print(X.shape)
-
-X_tr, X_te = train_test_split(X, train_size=0.75, random_state=0)
-X_tr = X_tr.tocsr()
-X_te = X_te.tocsr()
-#
-# X_tr = load('/volatile/arthur/spira_data/nf_prize/X_tr.pkl')
-# X_te = load('/volatile/arthur/spira_data/nf_prize/X_te.pkl')
-
-
-# _, X_te = train_test_split(X_te, train_size=0.9, random_state=0)
-# X_te = X_te.tocsr()
-#
-# print(X_tr.shape)
-
-
-def call(alpha, learning_rate):
-    cb = Callback(X_tr, X_te)
-    mf = DictMF(n_components=30, n_epochs=4, alpha=alpha, verbose=1,
-                normalize=True,
-                fit_intercept=True,
-                random_state=0,
-                learning_rate=learning_rate)
-
+for mf in [dl_mf]:
+    cb[mf] = Callback(X_tr, X_te, refit=(mf is dl_mf))
+    mf.set_params(callback=cb[mf])
     mf.fit(X_tr)
-    X_pred = mf.predict(X_te)
-    rmse = np.sqrt(np.mean((X_pred.data - X_te.data) ** 2))
-    print('rmse %.2f: %.4f' % (.5, rmse))
-    return np.array([alpha, learning_rate, rmse])
 
+timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+output_dir = join(expanduser('~/output/dl_fast'), timestamp)
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 
-res = Parallel(n_jobs=40)(delayed(call)(alpha,
-                                        0.5) for alpha in
-                          np.logspace(-1, 3, 10)
-                          for learning_rate in np.linspace(.5, 1, 4))
+plt.figure()
+label = {cd_mf: 'CD',
+         dl_mf: 'DL'}
+for mf in [dl_mf]:
+    plt.plot(cb[mf].times, cb[mf].rmse, label=label[mf])
+    np.save(join(output_dir, 'rmse' + label[mf]), np.r_[cb[mf].times, cb[mf].rmse])
+plt.legend()
+plt.xlabel("CPU time")
+plt.xscale("log")
+plt.ylabel("RMSE")
 
-res = np.concatenate(res)
-np.save(res, 'res')
+plt.savefig(join(output_dir, 'RMSE.pdf'))
