@@ -2,14 +2,12 @@ from math import pow
 
 import numpy as np
 import scipy.sparse as sp
-from numpy.linalg import LinAlgError
-from numpy.testing import assert_array_almost_equal
 from scipy import linalg
+from spira.impl.dict_fact_fast import _update_code_full_fast, _online_dl_fast
+from spira.impl.matrix_fact_fast import _predict
 
 from sklearn.base import BaseEstimator
-from sklearn.utils import check_random_state, gen_batches
-from spira.impl.dict_fact_fast import _update_dict_fast, _update_code_fast
-from spira.impl.matrix_fact_fast import _predict
+from sklearn.utils import check_random_state, gen_batches, check_array
 from spira.metrics import rmse
 
 
@@ -19,7 +17,10 @@ class DictMF(BaseEstimator):
                  normalize=False,
                  fit_intercept=False,
                  callback=None, random_state=None, verbose=0,
-                 batch_size=1):
+                 impute=True,
+                 batch_size=1,
+                 dict_init=None,
+                 backend='c'):
         self.batch_size = batch_size
         self.fit_intercept = fit_intercept
         self.normalize = normalize
@@ -30,43 +31,38 @@ class DictMF(BaseEstimator):
         self.n_epochs = n_epochs
         self.random_state = random_state
         self.verbose = verbose
+        self.impute = impute
+        self.dict_init = dict_init
+        self.backend = backend
 
     def _init(self, X, random_state):
         n_rows, n_cols = X.shape
 
         # P code
-        P = np.zeros((self.n_components, n_rows), order='F')
+        self.P_ = np.zeros((self.n_components, n_rows), order='F')
 
         # Q dictionary
-        Q = np.empty((self.n_components, n_cols), order='F')
-        if self.fit_intercept:
-            # Intercept on first line
-            Q[0] = 1
-            Q[1:] = random_state.randn(self.n_components - 1,
-                                       n_cols)  # + mean(X, 0)[np.newaxis, :]
+        if self.dict_init is not None:
+            if self.fit_intercept:
+                raise NotImplementedError('Dict init and fit intercept are'
+                                          'not yet compatible')
+            if self.dict_init.shape != (self.n_components, n_cols):
+                raise ValueError('Wrong shape for dict init')
+
+            self.Q_ = check_array(self.dict_init, order='F',
+                                  dtype='float')
         else:
-            Q[:] = random_state.randn(self.n_components,
-                                      n_cols)  # + mean(X, 0)[np.newaxis, :]
+            self.Q_ = np.empty((self.n_components, n_cols), order='F')
 
-        S = np.sqrt(np.sum(Q ** 2, axis=1))
-        Q /= S[:, np.newaxis]
+            if self.fit_intercept:
+                # Intercept on first line
+                self.Q_[0] = 1
+                self.Q_[1:] = random_state.randn(self.n_components - 1, n_cols)
+            else:
+                self.Q_[:] = random_state.randn(self.n_components, n_cols)
 
-        return P, Q
-
-    def _refit_code(self, X):
-        X = sp.csr_matrix(X, dtype=np.float64)
-        _, n_cols = X.shape
-        _online_refit(X.data, X.indices, X.indptr,
-                      n_cols,
-                      self.alpha, self.P_, self.Q_)
-
-    def fit(self, X, y=None):
-        X = sp.csr_matrix(X, dtype=np.float64)
-        n_rows, n_cols = X.shape
-
-        random_state = check_random_state(self.random_state)
-
-        self.P_, self.Q_ = self._init(X, random_state)
+        S = np.sqrt(np.sum(self.Q_ ** 2, axis=1))
+        self.Q_ /= S[:, np.newaxis]
 
         self.A_ = np.zeros((self.n_components, self.n_components),
                            order='F')
@@ -74,25 +70,63 @@ class DictMF(BaseEstimator):
 
         self.counter_ = np.zeros(n_cols + 1, dtype='int')
 
+        if self.impute:
+            self.G_ = self.Q_.dot(self.Q_.T).T
+            self.T_ = np.zeros((self.n_components, n_cols + 1), order="F")
+        else:
+            self.G_ = None
+            self.T_ = None
+
+    def _refit_code(self, X):
+        X = sp.csr_matrix(X, dtype=np.float64)
+        if self.backend == 'c':
+            _online_refit(X, self.alpha, self.P_, self.Q_, self.verbose)
+        else:
+            _online_refit_slow(X, self.alpha, self.P_, self.Q_, self.verbose)
+
+    def fit(self, X, y=None):
+        X = sp.csr_matrix(X, dtype=np.float64)
+
+        random_state = check_random_state(self.random_state)
+
+        self._init(X, random_state)
+
         if self.normalize:
             (X, self.row_mean_, self.col_mean_) = csr_center_data(X)
-
-        _online_dl(X,
-                   float(self.alpha), float(self.learning_rate),
-                   self.A_, self.B_,
-                   self.counter_,
-                   self.P_, self.Q_,
-                   self.fit_intercept,
-                   self.n_epochs,
-                   self.batch_size,
-                   random_state,
-                   self.verbose,
-                   self._callback)
         self._callback()
-        _online_refit(X, self.alpha, self.P_, self.Q_, self.verbose,
-                      self._callback)
+        if self.backend == 'c':
+            _online_dl(X,
+                       float(self.alpha), float(self.learning_rate),
+                       self.A_, self.B_,
+                       self.counter_,
+                       self.G_, self.T_,
+                       self.P_, self.Q_,
+                       self.fit_intercept,
+                       self.n_epochs,
+                       self.batch_size,
+                       random_state,
+                       self.verbose,
+                       self.impute,
+                       self._callback)
+        else:
+            _online_dl_slow(X,
+                            float(self.alpha), float(self.learning_rate),
+                            self.A_, self.B_,
+                            self.counter_,
+                            self.G_, self.T_,
+                            self.P_, self.Q_,
+                            self.fit_intercept,
+                            self.n_epochs,
+                            self.batch_size,
+                            random_state,
+                            self.verbose,
+                            self.impute,
+                            self._callback)
+        self._callback()
+        # self._refit_code(X)
+        # self._callback()
 
-    def _callback(self):
+    def _callback(self, G=None):
         if self.callback is not None:
             self.callback(self)
 
@@ -106,7 +140,8 @@ class DictMF(BaseEstimator):
             for i in range(X.shape[0]):
                 out[X.indptr[i]:X.indptr[i + 1]] += self.row_mean_[i]
             out += self.col_mean_.take(X.indices, mode='clip')
-
+        out[out > 5] = 5
+        out[out < 1] = 1
         return sp.csr_matrix((out, X.indices, X.indptr), shape=X.shape)
 
     def score(self, X):
@@ -115,39 +150,63 @@ class DictMF(BaseEstimator):
         return rmse(X, X_pred)
 
 
-def _online_refit(X, alpha, P, Q, verbose, callback):
+def _online_refit(X, alpha, P, Q, verbose):
+    n_rows, n_cols = X.shape
+    n_components = P.shape[0]
+
+    row_nnz = X.getnnz(axis=1)
+    max_idx_size = row_nnz.max()
+
+    Q_idx = np.zeros((n_components, max_idx_size), order='F')
+    C = np.zeros((n_components, n_components), order='F')
+    if verbose:
+        print('Refitting code')
+    _update_code_full_fast(X.data, X.indices, X.indptr, n_rows, n_cols,
+                           alpha, P, Q, Q_idx, C)
+
+
+def _online_dl(X,
+               alpha, learning_rate,
+               A, B, counter,
+               G, T,
+               P, Q,
+               fit_intercept, n_epochs, batch_size, random_state, verbose,
+               impute,
+               callback,):
+    row_nnz = X.getnnz(axis=1)
+    n_cols = X.shape[1]
+    max_idx_size = min(row_nnz.max() * batch_size, n_cols)
+    row_range = row_nnz.nonzero()[0]
+
+    n_rows, n_cols = X.shape
+
+    random_seed = random_state.randint(0, np.iinfo(np.uint32).max)
+    if not impute:
+        G = np.zeros((0, 0), order='F')
+        T = np.zeros((0, 0), order='F')
+    _online_dl_fast(X.data, X.indices,
+                    X.indptr, n_rows, n_cols,
+                    row_range,
+                    max_idx_size,
+                    alpha, learning_rate,
+                    A, B,
+                    counter,
+                    G, T,
+                    P, Q,
+                    n_epochs, batch_size,
+                    random_seed,
+                    verbose, fit_intercept, impute, callback)
+
+
+def _online_refit_slow(X, alpha, P, Q, verbose):
     row_range = X.getnnz(axis=1).nonzero()[0]
     n_cols = X.shape[1]
     n_components = P.shape[0]
 
-    for ii, j in enumerate(row_range):
-        nnz = X.indptr[j + 1] - X.indptr[j]
-        idx = X.indices[X.indptr[j]:X.indptr[j + 1]]
-        x = X.data[X.indptr[j]:X.indptr[j + 1]]
+    if verbose:
+        print('Refitting code')
 
-        Q_idx = Q[:, idx]
-        C = Q_idx.dot(Q_idx.T)
-        Qx = Q_idx.dot(x)
-        C.flat[::n_components + 1] += 2 * alpha * nnz / n_cols
-        try:
-            P[:, j] = linalg.solve(C, Qx, sym_pos=True,
-                                   overwrite_a=True, check_finite=False)
-        except LinAlgError:
-            print('Linalg error')
-            P[:, j] = 0
-        if verbose:
-            if ii % 5000 == 0:
-                print("Refit iteration %i" % ii)
-                callback()
-
-
-def _update_code_slow(X, alpha, learning_rate,
-                      A, B, counter,
-                      P, Q, row_batch):
-    len_batch = len(row_batch)
-    n_cols = X.shape[1]
-    n_components = P.shape[0]
-    for j in row_batch:
+    for j in row_range:
         nnz = X.indptr[j + 1] - X.indptr[j]
         idx = X.indices[X.indptr[j]:X.indptr[j + 1]]
         x = X.data[X.indptr[j]:X.indptr[j + 1]]
@@ -159,10 +218,47 @@ def _update_code_slow(X, alpha, learning_rate,
         P[:, j] = linalg.solve(C, Qx, sym_pos=True,
                                overwrite_a=True, check_finite=False)
 
-        counter[1][idx] += 1
-        w_B = np.power(counter[1][idx], - learning_rate)[np.newaxis, :]
-        B[:, idx] *= 1 - w_B
-        B[:, idx] += np.outer(P[:, j], x) * w_B
+
+def _update_code_slow(X, alpha, learning_rate,
+                      A, B, G, T, counter,
+                      P, Q, row_batch, impute=False):
+    len_batch = len(row_batch)
+    n_cols = X.shape[1]
+    n_components = P.shape[0]
+    for j in row_batch:
+        idx = X.indices[X.indptr[j]:X.indptr[j + 1]]
+        x = X.data[X.indptr[j]:X.indptr[j + 1]]
+        nnz = X.indptr[j + 1] - X.indptr[j]
+
+        if impute:
+            T[:, 0] -= T[:, idx + 1].sum(axis=1)
+            T[:, idx + 1] = Q[:, idx] * x
+            red_Qx = T[:, idx + 1].sum(axis=1)
+            T[:, 0] += red_Qx
+
+            v = 0 # nnz / n_cols
+            Qx = v * red_Qx + (1 - v) * T[:, 0]
+            G.flat[::n_components + 1] += 2 * alpha
+        else:
+            Qx = Q[:, idx].dot(x)
+            G = Q[:, idx].dot(Q[:, idx].T)
+            G.flat[::n_components + 1] += 2 * alpha * nnz / n_cols
+
+        P[:, j] = linalg.solve(G,
+                               Qx, sym_pos=True,
+                               overwrite_a=True, check_finite=False)
+
+        if impute:
+            G.flat[::n_components + 1] -= 2 * alpha
+
+        counter[0] += 1
+        counter[idx + 1] += 1
+        w_A = pow(1 / counter[0], learning_rate)
+        A *= 1 - w_A
+        A += np.outer(P[:, j], P[:, j]) * w_A
+
+        B[:, idx] *= 1 - w_A
+        B[:, idx] += np.outer(P[:, j], x) * w_A
 
     X_indices = np.concatenate([X.indices[X.indptr[j]:X.indptr[j + 1]]
                                 for j in row_batch])
@@ -172,47 +268,52 @@ def _update_code_slow(X, alpha, learning_rate,
     else:
         idx = X_indices
 
-    counter[0] += len_batch
-    w_A = pow(counter[0], -learning_rate)
-    A *= 1 - w_A * len_batch
-    A += P[:, row_batch].T.dot(P[:, row_batch]) * w_A
-
-    return idx
+    return idx #, x
 
 
-def _update_dict(X, fit_intercept,
-                 A, B, P, Q_idx, idx, components_range, norm):
+def _update_dict_slow(X, A, B, G, Q, Q_idx, idx, fit_intercept,
+                      components_range, norm, impute=True):
+    Q_idx = Q[:, idx]
+
+    if impute:
+        old_sub_G = Q_idx.dot(Q_idx.T)
+
+    ger, = linalg.get_blas_funcs(('ger',), (A, Q_idx))
     R = B[:, idx] - np.dot(Q_idx.T, A).T
 
-    _update_dict_fast(
-            Q_idx,
-            A,
-            R,
-            fit_intercept,
-            components_range,
-            norm)
+    norm = np.sqrt(np.sum(Q_idx ** 2, axis=1))
+
+    # Intercept on first column
+    for j in components_range:
+        ger(1.0, A[j], Q_idx[j], a=R, overwrite_a=True)
+        Q_idx[j] = R[j] / A[j, j]
+        new_norm = np.sqrt(np.sum(Q_idx[j] ** 2))
+        if new_norm > norm[j]:
+            Q_idx[j] /= new_norm / norm[j]
+        ger(-1.0, A[j], Q_idx[j], a=R, overwrite_a=True)
 
     Q[:, idx] = Q_idx
 
+    if impute:
+        G += Q_idx.dot(Q_idx.T) - old_sub_G
 
-def _online_dl(X,
-               alpha, learning_rate,
-               A, B, counter,
-               P, Q,
-               fit_intercept, n_epochs, batch_size, random_state, verbose,
-               callback):
+def _online_dl_slow(X,
+                    alpha, learning_rate,
+                    A, B, counter,
+                    G, T,
+                    P, Q,
+                    fit_intercept, n_epochs, batch_size, random_state, verbose,
+                    impute,
+                    callback):
     row_nnz = X.getnnz(axis=1)
     max_idx_size = row_nnz.max() * batch_size
     row_range = row_nnz.nonzero()[0]
 
     n_rows, n_cols = X.shape
     n_components = P.shape[0]
-    max_idx = n_cols
     Q_idx = np.zeros((n_components, max_idx_size), order='F')
-    P_batch = np.zeros((n_components, batch_size), order='F')
-    C = np.zeros((n_components, n_components), order='F')
-    idx_mask = np.zeros(n_cols, dtype='i1')
-    idx_concat = np.zeros(max_idx, dtype='int')
+
+    last_call = 0
 
     norm = np.zeros(n_components)
 
@@ -221,32 +322,25 @@ def _online_dl(X,
     else:
         components_range = np.arange(1, n_components)
 
-    for _ in range(n_epochs):
+    for e in range(n_epochs):
         random_state.shuffle(row_range)
         batches = gen_batches(len(row_range), batch_size)
         for batch in batches:
             row_batch = row_range[batch]
-            last = _update_code_fast(X.data, X.indices,
-                                     X.indptr, n_rows, n_cols,
-                                     alpha, learning_rate,
-                                     A, B,
-                                     counter,
-                                     P, Q,
-                                     row_batch,
-                                     Q_idx,
-                                     P_batch,
-                                     C,
-                                     idx_mask,
-                                     idx_concat)
+            idx = _update_code_slow(X, alpha, learning_rate,
+                                    A, B, G, T, counter,
+                                    P, Q, row_batch,
+                                    impute=impute)
             random_state.shuffle(components_range)
-            _update_dict(X, fit_intercept,
-                         A, B, P, Q_idx, idx_concat[:last], components_range,
-                         norm)
 
-            if verbose:
-                if counter[0] % 10000 == 0:
-                    print("Iteration %i" % (counter[0]))
-                    callback()
+            _update_dict_slow(X, A, B, G, Q, Q_idx, idx, fit_intercept,
+                              components_range, norm, impute=impute)
+
+            # assert_array_almost_equal(Q.dot(Q.T), G)
+            if verbose and counter[0] // (n_rows // verbose) == last_call + 1:
+                print("Iteration %i" % (counter[0]))
+                last_call += 1
+                callback()
 
 
 def csr_center_data(X, inplace=False):
