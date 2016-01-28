@@ -51,7 +51,8 @@ class ExplicitMF(BaseEstimator):
         g = np.empty(n_max, dtype=np.float64)
         h = np.empty(n_max, dtype=np.float64)
         delta = np.empty(n_max, dtype=np.float64)
-        self.callback(self)
+        if self.callback is not None:
+            self.callback(self)
         # Model estimation.
         _cd_fit(self, X.data, X.indices, X.indptr, self.P_, self.Q_, residuals,
                 g, h, delta, self.n_components, self.alpha, self.max_iter,

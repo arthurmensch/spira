@@ -52,7 +52,6 @@ class Callback(object):
         self.times.append(time.clock() - self.start_time - self.test_time)
 
 X_tr = load(expanduser('~/spira_data/nf_prize/X_tr.pkl'))
-# X_tr = X_tr.T.tocsr()
 X_te = load(expanduser('~/spira_data/nf_prize/X_te.pkl'))
 # X_te = X_te.T.tocsr()
 

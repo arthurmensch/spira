@@ -11,27 +11,28 @@ from spira.cross_validation import ShuffleSplit
 from spira.cross_validation import cross_val_score
 from spira.datasets import load_movielens
 from spira.impl.dict_fact import DictMF
+from spira.impl.matrix_fact import ExplicitMF
 
 try:
     version = sys.argv[1]
 except:
-    version = "10m"
+    version = "100k"
 
 X = load_movielens(version)
 print(X.shape)
 
-alphas = np.logspace(-2, 2, 15)
+alphas = np.logspace(-2, 1, 10)
 mf_scores = []
 
 cv = ShuffleSplit(n_iter=3, train_size=0.75, random_state=0)
 
 for alpha in alphas:
-    # mf = ExplicitMF(n_components=30, max_iter=10, alpha=alpha)
-    mf = DictMF(n_components=30, n_epochs=3, alpha=alpha, verbose=1,
-                batch_size=100, normalize=True,
-                fit_intercept=True,
-                random_state=0,
-                learning_rate=1)
+    mf = ExplicitMF(n_components=30, max_iter=10, alpha=alpha)
+    # mf = DictMF(n_components=30, n_epochs=10, alpha=alpha, verbose=1,
+    #             batch_size=10, normalize=True,
+    #             fit_intercept=True,
+    #             random_state=0,
+    #             learning_rate=.5)
     mf_scores.append(cross_val_score(mf, X, cv))
 
 # Array of size n_alphas x n_folds.

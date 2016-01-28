@@ -56,8 +56,8 @@ class Callback(object):
 # X_tr = X_tr.tocsr()
 # X_te = X_te.tocsr()
 #
-X_tr = load(expanduser('~/spira_data/nf_prize/X_tr.pkl'))
-X_te = load(expanduser('~/spira_data/nf_prize/X_te.pkl'))
+X_tr = load(expanduser('~/data/nf_prize/X_tr.pkl'))
+X_te = load(expanduser('~/data/nf_prize/X_te.pkl'))
 
 
 # X_tr = X_tr.T.tocsr()
