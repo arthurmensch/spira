@@ -261,9 +261,10 @@ def _update_code_slow(X, alpha, learning_rate,
         w_A = pow(1 / counter[0], learning_rate)
         A *= 1 - w_A
         A += np.outer(P[:, j], P[:, j]) * w_A
+        w_B = np.power(1 / counter[idx + 1], learning_rate)
 
-        B[:, idx] *= 1 - w_A
-        B[:, idx] += np.outer(P[:, j], x) * w_A
+        B[:, idx] *= 1 - w_B
+        B[:, idx] += np.outer(P[:, j], x) * w_B
 
     X_indices = np.concatenate([X.indices[X.indptr[j]:X.indptr[j + 1]]
                                 for j in row_batch])
@@ -286,15 +287,24 @@ def _update_dict_slow(X, A, B, G, Q, Q_idx, idx, fit_intercept,
     ger, = linalg.get_blas_funcs(('ger',), (A, Q_idx))
     R = B[:, idx] - np.dot(Q_idx.T, A).T
 
-    norm = np.sqrt(np.sum(Q_idx ** 2, axis=1))
-
+    # norm = np.sqrt(np.sum(Q_idx ** 2, axis=1))
+    norm = np.sqrt(np.sum(Q ** 2, axis=1))
+    print('Old norm : %.8f' % norm[1])
     # Intercept on first column
     for j in components_range:
         ger(1.0, A[j], Q_idx[j], a=R, overwrite_a=True)
         Q_idx[j] = R[j] / A[j, j]
-        new_norm = np.sqrt(np.sum(Q_idx[j] ** 2))
-        if new_norm > norm[j]:
-            Q_idx[j] /= new_norm / norm[j]
+        # new_norm = np.sqrt(np.sum(Q_idx[j] ** 2))
+        # if new_norm > norm[j]:
+        #     Q_idx[j] /= new_norm / norm[j]
+        Q[j, idx] = Q_idx[j]
+        new_norm = np.sqrt(np.sum(Q[j] ** 2))
+        if j == 1:
+            print('New norm : %.8f' % new_norm)
+        if new_norm > 1:
+            Q_idx[j] /= new_norm
+            Q[j] /= new_norm
+
         ger(-1.0, A[j], Q_idx[j], a=R, overwrite_a=True)
 
     Q[:, idx] = Q_idx

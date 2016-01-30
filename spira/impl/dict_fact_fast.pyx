@@ -170,15 +170,16 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
     for jj in range(n_cols):
         idx_mask[jj] = 0
 
+
     for ii in range(len_batch):
         i = row_batch[ii]
         nnz = X_indptr[i + 1] - X_indptr[i]
         # print('Filling Q')
-
         for jj in range(nnz):
             for k in range(n_components):
                 # Q_idx[:, jj] = Q[k, X_indices[X_indptr[i] + jj]] * exp(Q_mult[k])
-                Q_idx[:, jj] = Q[k, X_indices[X_indptr[i] + jj]] * (Q_mult[k])
+                Q_idx[k, jj] = Q[k, X_indices[X_indptr[i] + jj]] * (Q_mult[k])
+
         # print('Computing Gram')
 
         if impute:
@@ -304,8 +305,8 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
     for jj in range(idx_len):
         j = idx[jj]
         R[:, jj] = B[:, j]
-        for k in range(n_components):
-            Q_idx[k, jj] = Q[k, j] * Q_mult[k]
+        for kk in range(n_components):
+            Q_idx[kk, jj] = Q[kk, j] * Q_mult[kk]
             # Q_idx[k, jj] = Q[k, j] * exp(Q_mult[k])
 
     if impute:
@@ -330,8 +331,8 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
     for kk in range(components_range_len):
         k = components_range[kk]
         # old_norm = Q_norm[k]
-        # if k == 1:
-        #     print("Old norm %.2f" % old_norm)
+        if k == 1:
+            print("Old norm %.2f" % Q_norm[k])
         for jj in range(idx_len):
             Q_norm[k] -= Q_idx[k, jj] ** 2
         dger(&n_components, &idx_len, &oned,
@@ -341,8 +342,8 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
             Q_idx[k, jj] = R[k, jj] / A[k, k]
             Q[k, j] = Q_idx[k, jj] / Q_mult[k]
             Q_norm[k] += Q_idx[k, jj] ** 2
-        # if k == 1:
-        #     print("New norm %.2f" % Q_norm[k])
+        if k == 1:
+            print("New norm %.2f" % Q_norm[k])
         if Q_norm[k] > 1:
             Q_mult[k] /= sqrt(Q_norm[k])
             # Q_mult[k] -= .5 * log(Q_norm[k])
@@ -469,7 +470,7 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
             for k in range(n_components):
                 if Q_mult[k] < min:
                     min = Q_mult[k]
-            if min < 1e-10:
+            if min < 1:
                 for k in range(n_components):
                     for j in range(n_cols):
                         # Q[k, j] *= exp(Q_mult[k])

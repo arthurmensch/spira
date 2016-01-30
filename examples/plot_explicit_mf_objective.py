@@ -65,8 +65,9 @@ class Callback(object):
 
 def main(version='100k'):
     params = {}
-    params['100k'] = dict(learning_rate=.5, batch_size=10, offset=0, alpha=2)
-    params['1m'] = dict(learning_rate=.5, batch_size=10, offset=10, alpha=.01)
+    params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=5)
+    params['1m'] = dict(learning_rate=1, batch_size=1, offset=0,
+                        alpha=1)
     params['10m'] = dict(learning_rate=.5, batch_size=400, offset=10, alpha=.5)
 
     if version in ['100k', '1m', '10m']:
@@ -185,8 +186,8 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 
 if __name__ == '__main__':
-    # main('100k')
-    main('1m')
+    main('100k')
+    # main('1m')
     # main('10m')
     # main('netflix')
     plot_benchs()
