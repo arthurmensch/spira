@@ -3,7 +3,6 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 
-
 cimport numpy as np
 from libc.math cimport sqrt, log, exp
 
@@ -56,6 +55,7 @@ cdef void _shuffle(long[:] arr, UINT32_t* random_state):
 cpdef int _update_code_full_fast(double[:] X_data, int[:] X_indices,
                   int[:] X_indptr, long n_rows, long n_cols,
                   double alpha, double[::1, :] P, double[::1, :] Q,
+                                 double[:] Q_mult,
                   double[::1, :] Q_idx,
                   double[::1, :] C):
     cdef int n_components = P.shape[0]
@@ -74,7 +74,9 @@ cpdef int _update_code_full_fast(double[:] X_data, int[:] X_indices,
         # print('Filling Q')
 
         for jj in range(nnz):
-            Q_idx[:, jj] = Q[:, X_indices[X_indptr[ii] + jj]]
+            for k in range(n_components):
+                # Q_idx[k, jj] = Q[k, X_indices[X_indptr[ii] + jj]] * exp(Q_mult[k])
+                Q_idx[k, jj] = Q[k, X_indices[X_indptr[ii] + jj]] * Q_mult[k]
         # print('Computing Gram')
 
         dgemm(&NTRANS, &TRANS,
@@ -177,8 +179,8 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
         # print('Filling Q')
         for jj in range(nnz):
             for k in range(n_components):
-                # Q_idx[:, jj] = Q[k, X_indices[X_indptr[i] + jj]] * exp(Q_mult[k])
-                Q_idx[k, jj] = Q[k, X_indices[X_indptr[i] + jj]] * (Q_mult[k])
+                # Q_idx[k, jj] = Q[k, X_indices[X_indptr[i] + jj]] * exp(Q_mult[k])
+                Q_idx[k, jj] = Q[k, X_indices[X_indptr[i] + jj]] * Q_mult[k]
 
         # print('Computing Gram')
 
@@ -254,8 +256,6 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
             idx_mask[j] = 1
             counter[j + 1] += 1
             w_B = pow((1. + offset) /(offset + counter[j + 1]), learning_rate)
-            if jj == 0:
-                print(w_B)
             for k in range(n_components):
                 B[k, j] = (1 - w_B) * B[k, j] + \
                                  w_B * P_batch[k, ii]\
@@ -280,8 +280,8 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
 cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
                             double[::1, :] G,
                             double[::1, :] Q,
-                            double[:] Q_norm,
                             double[:] Q_mult,
+                            double[:] Q_norm,
                             double[::1, :] R,
                             double[::1, :] Q_idx,
                             double[::1, :] old_sub_G,
@@ -298,18 +298,18 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
     cdef double* R_ptr = &R[0, 0]
     cdef double* G_ptr = &G[0, 0]
     cdef double* old_sub_G_ptr = &old_sub_G[0, 0]
-    cdef double old_norm
+    cdef double exp_mult
     cdef unsigned int k, kk, j, jj
 
     # print("Q mult: % .4f" % Q_mult[1])
     # print("Q norm: % .4f" % Q_norm[1])
 
-    for jj in range(idx_len):
-        j = idx[jj]
-        R[:, jj] = B[:, j]
-        for kk in range(n_components):
-            Q_idx[kk, jj] = Q[kk, j] * Q_mult[kk]
-            # Q_idx[k, jj] = Q[k, j] * exp(Q_mult[k])
+    for kk in range(n_components):
+        # exp_mult = exp(Q_mult[kk])
+        for jj in range(idx_len):
+            j = idx[jj]
+            R[kk, jj] = B[kk, j]
+            Q_idx[kk, jj] = Q[kk, j] * Q_mult[kk] # exp_mult
 
     if impute:
         dgemm(&NTRANS, &TRANS,
@@ -333,8 +333,8 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
     for kk in range(components_range_len):
         k = components_range[kk]
         # old_norm = Q_norm[k]
-        if k == 1:
-            print("Old norm %.2f" % Q_norm[k])
+        # if k == 1:
+        #     print("Old norm %.2f" % sqrt(Q_norm[k]))
         for jj in range(idx_len):
             Q_norm[k] -= Q_idx[k, jj] ** 2
         dger(&n_components, &idx_len, &oned,
@@ -342,13 +342,12 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
              &one, Q_idx_ptr + k, &n_components, R_ptr, &n_components)
         for jj in range(idx_len):
             Q_idx[k, jj] = R[k, jj] / A[k, k]
-            Q[k, j] = Q_idx[k, jj] / Q_mult[k]
             Q_norm[k] += Q_idx[k, jj] ** 2
-        if k == 1:
-            print("New norm %.2f" % Q_norm[k])
+        # if k == 1:
+        #     print("New norm %.2f" % sqrt(Q_norm[k]))
         if Q_norm[k] > 1:
-            Q_mult[k] /= sqrt(Q_norm[k])
             # Q_mult[k] -= .5 * log(Q_norm[k])
+            Q_mult[k] /= sqrt(Q_norm[k])
             # Live update of Q_idx
             for jj in range(idx_len):
                 Q_idx[k, jj] /= sqrt(Q_norm[k])
@@ -357,6 +356,12 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
         dger(&n_components, &idx_len, &moned,
              A_ptr + k  * n_components,
              &one, Q_idx_ptr + k, &n_components, R_ptr, &n_components)
+
+    for jj in range(idx_len):
+        for kk in range(n_components):
+            j = idx[jj]
+            # exp_mult = exp(Q_mult[kk])
+            Q[kk, j] = Q_idx[kk, jj] / Q_mult[kk]
 
     if impute:
         dgemm(&NTRANS, &TRANS,
@@ -382,6 +387,7 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
                     long[:] counter,
                     double[::1, :] G, double[::1, :] T,
                     double[::1, :] P, double[::1, :] Q,
+                    double[:] Q_mult,
                     long n_epochs, long batch_size,
                     UINT32_t random_seed,
                     long verbose,
@@ -407,22 +413,24 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
     cdef char[:] idx_mask = np.zeros(n_cols, dtype='i1')
     cdef long[:] idx_concat = np.zeros(max_idx_size, dtype='int')
     cdef long[:] components_range
-    cdef double[:] Q_norm = np.zeros(n_components)
-    # cdef double[:] Q_mult = np.zeros(n_components)
-    cdef double[:] Q_mult = np.ones(n_components)
     cdef int i, start, stop, last, last_call = 0
     cdef long[:] row_batch
+    cdef double[:] Q_norm = np.ones(n_components)
+    cdef double norm = 0
 
     cdef double* Q_ptr = &Q[0, 0]
     cdef double* G_ptr = &G[0, 0]
 
+    cdef double min
+
     for k in range(n_components):
         for j in range(n_cols):
-            Q_norm[k] += Q[k, j] ** 2
-        if Q_norm[k] > 1:
-            # Q_mult[k] -= .5 * log(Q_norm[k])
-            Q_mult[k] /= sqrt(Q_norm[k])
-            Q_norm[k] = 1
+            norm += Q[k, j] ** 2
+        norm = sqrt(norm)
+        for j in range(n_cols):
+           Q[k, j] /= norm
+        Q_mult[k] = 1
+
     if not fit_intercept:
         components_range = np.arange(n_components)
     else:
@@ -458,8 +466,8 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
                     B,
                     G,
                     Q,
-                    Q_norm,
                     Q_mult,
+                    Q_norm,
                     R,
                     Q_idx,
                     old_sub_G,
@@ -472,12 +480,11 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
             for k in range(n_components):
                 if Q_mult[k] < min:
                     min = Q_mult[k]
-            if min < 1:
+            if min <= 1e-10:
                 for k in range(n_components):
                     for j in range(n_cols):
                         # Q[k, j] *= exp(Q_mult[k])
                         Q[k, j] *= Q_mult[k]
-                    # Q_mult[k] = 0
                     Q_mult[k] = 1
 
             if verbose and counter[0] // (n_rows // verbose) == last_call + 1:

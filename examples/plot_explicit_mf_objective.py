@@ -37,6 +37,7 @@ class Callback(object):
 
     def __call__(self, mf):
         test_time = time.clock()
+        # print(mf.Q_[1])
         if self.refit:
             if mf.normalize:
                 if not hasattr(self, 'X_tr_c_'):
@@ -66,9 +67,10 @@ class Callback(object):
 def main(version='100k'):
     params = {}
     params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=5)
-    params['1m'] = dict(learning_rate=1, batch_size=1, offset=0,
-                        alpha=1)
-    params['10m'] = dict(learning_rate=.5, batch_size=400, offset=10, alpha=.5)
+    params['1m'] = dict(learning_rate=.75, batch_size=100, offset=0,
+                        alpha=.8)
+    params['10m'] = dict(learning_rate=.75, batch_size=250, offset=0,
+                         alpha=3)
 
     if version in ['100k', '1m', '10m']:
         X = load_movielens(version)
@@ -81,7 +83,7 @@ def main(version='100k'):
 
     cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=.15, normalize=True,
                        verbose=1, )
-    dl_mf = DictMF(n_components=30, n_epochs=30, alpha=.8, verbose=5,
+    dl_mf = DictMF(n_components=30, n_epochs=20, alpha=.8, verbose=5,
                    batch_size=1, normalize=True,
                    fit_intercept=True,
                    random_state=0,
@@ -92,10 +94,11 @@ def main(version='100k'):
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H'
                                                  '-%M-%S')
     output_dir = expanduser(join('~/output/recommender/', 'benches'))
-    # os.makedirs(output_dir)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-    alphas = np.logspace(-2, 0, 10)
-    mf_list = [dl_mf]
+    alphas = np.logspace(-2, 1, 20)
+    mf_list = [cd_mf, dl_mf]
     dict_id = {cd_mf: 'cd', dl_mf: 'dl'}
     names = {'cd': 'Coordinate descent', 'dl': 'Proposed online masked MF'}
 
@@ -112,30 +115,29 @@ def main(version='100k'):
             mf.set_params(learning_rate=params[version]['learning_rate'],
                           batch_size=params[version]['batch_size'],
                           alpha=params[version]['alpha'])
-        else:
-            for alpha in alphas:
-                mf_cv = clone(mf)
-                if isinstance(mf_cv, DictMF):
-                    mf_cv.set_params(n_epochs=4)
-                else:
-                    mf_cv.set_params(max_iter=20)
-                mf_cv.set_params(alpha=alpha)
-                mf_cv.fit(X_tr)
-                score = [mf_cv.score(X_te)]
-                # score = cross_val_score(mf_cv, X_tr, cv)
-                mf_scores.append(score)
+        for alpha in alphas:
+            mf_cv = clone(mf)
+            if isinstance(mf_cv, DictMF):
+                mf_cv.set_params(n_epochs=2)
+            else:
+                mf_cv.set_params(max_iter=10)
+            mf_cv.set_params(alpha=alpha)
+            mf_cv.fit(X_tr)
+            score = [mf_cv.score(X_te)]
+            # score = cross_val_score(mf_cv, X_tr, cv)
+            mf_scores.append(score)
 
-            mf_scores = np.array(mf_scores).mean(axis=1)
-            best_alpha_arg = mf_scores.argmin()
-            best_alpha = alphas[best_alpha_arg]
-            mf.set_params(alpha=best_alpha)
+        mf_scores = np.array(mf_scores).mean(axis=1)
+        best_alpha_arg = mf_scores.argmin()
+        best_alpha = alphas[best_alpha_arg]
+        mf.set_params(alpha=best_alpha)
 
         cb = Callback(X_tr, X_te, refit=isinstance(mf, DictMF))
         mf.set_params(callback=cb)
         mf.fit(X_tr)
         results[dict_id[mf]] = dict(name=names[dict_id[mf]],
-                                    # cv_alpha=mf_scores.tolist(),
-                                    # alpha=alphas.tolist(),
+                                    cv_alpha=mf_scores.tolist(),
+                                    alpha=alphas.tolist(),
                                     best_alpha=mf.alpha, time=cb.times,
                                     rmse=cb.rmse)
         with open(join(output_dir, 'results_%s.json' % version), 'w+') as f:
@@ -186,8 +188,8 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 
 if __name__ == '__main__':
-    main('100k')
-    # main('1m')
-    # main('10m')
     # main('netflix')
+    # main('100k')
+    # main('1m')
+    main('10m')
     plot_benchs()

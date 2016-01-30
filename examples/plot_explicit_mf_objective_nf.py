@@ -58,7 +58,7 @@ X_te = load(expanduser('~/spira_data/nf_prize/X_te.pkl'))
 cb = {}
 cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=0.1, verbose=1, )
 dl_mf = DictMF(n_components=30, n_epochs=5, alpha=.3, verbose=10,
-               batch_size=400, normalize=True,
+               batch_size=1000, normalize=True,
                fit_intercept=True,
                random_state=0,
                learning_rate=1,

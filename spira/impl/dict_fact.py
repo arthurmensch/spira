@@ -62,7 +62,7 @@ class DictMF(BaseEstimator):
                 self.Q_[1:] = random_state.randn(self.n_components - 1, n_cols)
             else:
                 self.Q_[:] = random_state.randn(self.n_components, n_cols)
-
+        self.Q_mult_ = np.zeros(self.n_components)
         S = np.sqrt(np.sum(self.Q_ ** 2, axis=1))
         self.Q_ /= S[:, np.newaxis]
 
@@ -82,7 +82,8 @@ class DictMF(BaseEstimator):
     def _refit_code(self, X):
         X = sp.csr_matrix(X, dtype=np.float64)
         if self.backend == 'c':
-            _online_refit(X, self.alpha, self.P_, self.Q_, self.verbose)
+            _online_refit(X, self.alpha, self.P_, self.Q_, self.Q_mult_,
+                          self.verbose)
         else:
             _online_refit_slow(X, self.alpha, self.P_, self.Q_, self.verbose)
 
@@ -104,6 +105,7 @@ class DictMF(BaseEstimator):
                        self.counter_,
                        self.G_, self.T_,
                        self.P_, self.Q_,
+                       self.Q_mult_,
                        self.fit_intercept,
                        self.n_epochs,
                        self.batch_size,
@@ -137,7 +139,7 @@ class DictMF(BaseEstimator):
         X = sp.csr_matrix(X)
         out = np.zeros_like(X.data)
         _predict(out, X.indices, X.indptr, self.P_.T,
-                 self.Q_)
+                 self.Q_ * self.Q_mult_[:, np.newaxis])
 
         if self.normalize:
             for i in range(X.shape[0]):
@@ -153,7 +155,7 @@ class DictMF(BaseEstimator):
         return rmse(X, X_pred)
 
 
-def _online_refit(X, alpha, P, Q, verbose):
+def _online_refit(X, alpha, P, Q, Q_mult, verbose):
     n_rows, n_cols = X.shape
     n_components = P.shape[0]
 
@@ -165,7 +167,7 @@ def _online_refit(X, alpha, P, Q, verbose):
     if verbose:
         print('Refitting code')
     _update_code_full_fast(X.data, X.indices, X.indptr, n_rows, n_cols,
-                           alpha, P, Q, Q_idx, C)
+                           alpha, P, Q, Q_mult, Q_idx, C)
 
 
 def _online_dl(X,
@@ -174,6 +176,7 @@ def _online_dl(X,
                A, B, counter,
                G, T,
                P, Q,
+               Q_mult,
                fit_intercept, n_epochs, batch_size, random_state, verbose,
                impute,
                callback,):
@@ -186,8 +189,8 @@ def _online_dl(X,
 
     random_seed = random_state.randint(0, np.iinfo(np.uint32).max)
     if not impute:
-        G = np.zeros((0, 0), order='F')
-        T = np.zeros((0, 0), order='F')
+        G = np.zeros((1, 1), order='F')
+        T = np.zeros((1, 1), order='F')
     _online_dl_fast(X.data, X.indices,
                     X.indptr, n_rows, n_cols,
                     row_range,
@@ -198,6 +201,7 @@ def _online_dl(X,
                     counter,
                     G, T,
                     P, Q,
+                    Q_mult,
                     n_epochs, batch_size,
                     random_seed,
                     verbose, fit_intercept, impute, callback)

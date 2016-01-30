@@ -56,8 +56,8 @@ class Callback(object):
 # X_tr = X_tr.tocsr()
 # X_te = X_te.tocsr()
 #
-X_tr = load(expanduser('~/data/nf_prize/X_tr.pkl'))
-X_te = load(expanduser('~/data/nf_prize/X_te.pkl'))
+X_tr = load(expanduser('~/spira_data/nf_prize/X_tr.pkl'))
+X_te = load(expanduser('~/spira_data/nf_prize/X_te.pkl'))
 
 
 # X_tr = X_tr.T.tocsr()
@@ -71,7 +71,7 @@ X_te = load(expanduser('~/data/nf_prize/X_te.pkl'))
 
 def call(n_components, alpha, learning_rate, batch_size):
     cb = Callback(X_tr, X_te)
-    mf = DictMF(n_components=n_components, n_epochs=10, alpha=alpha, verbose=10,
+    mf = DictMF(n_components=n_components, n_epochs=2, alpha=alpha, verbose=10,
                 batch_size=batch_size,
                 normalize=True,
                 fit_intercept=True,
@@ -94,7 +94,7 @@ output_dir = join(expanduser('~/output/dl_fast'), timestamp)
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-res = Parallel(n_jobs=40,
+res = Parallel(n_jobs=20,
                verbose=10)(delayed(call)(n_components,
                                          alpha,
                                          learning_rate,
