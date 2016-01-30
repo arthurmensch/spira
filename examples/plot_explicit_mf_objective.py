@@ -41,7 +41,8 @@ class Callback(object):
             if mf.normalize:
                 if not hasattr(self, 'X_tr_c_'):
                     self.X_tr_c_, _, _ = csr_center_data(self.X_tr)
-                mf._refit_code(self.X_tr_c_)
+                else:
+                    mf._refit_code(self.X_tr_c_)
             else:
                 mf._refit_code(self.X_tr)
         X_pred = mf.predict(self.X_tr)
@@ -64,9 +65,9 @@ class Callback(object):
 
 def main(version='100k'):
     params = {}
-    params['100k'] = dict(learning_rate=.75, batch_size=10, alpha=6)
-    params['1m'] = dict(learning_rate=.5, batch_size=100, alpha=.8)
-    params['10m'] = dict(learning_rate=.5, batch_size=400, alpha=.8)
+    params['100k'] = dict(learning_rate=.75, batch_size=10, offset=10, alpha=6)
+    params['1m'] = dict(learning_rate=.75, batch_size=100, offset=10, alpha=.5)
+    params['10m'] = dict(learning_rate=.5, batch_size=400, offset=10, alpha=.5)
 
     if version in ['100k', '1m', '10m']:
         X = load_movielens(version)
@@ -92,7 +93,7 @@ def main(version='100k'):
     output_dir = expanduser(join('~/output/recommender/', 'benches'))
     # os.makedirs(output_dir)
 
-    alphas = np.logspace(-1.5, 1.5, 10)
+    alphas = np.logspace(-2, 0, 10)
     mf_list = [dl_mf]
     dict_id = {cd_mf: 'cd', dl_mf: 'dl'}
     names = {'cd': 'Coordinate descent', 'dl': 'Proposed online masked MF'}
@@ -120,7 +121,7 @@ def main(version='100k'):
                 mf_cv.set_params(alpha=alpha)
                 mf_cv.fit(X_tr)
                 score = [mf_cv.score(X_te)]
-                # score = cross_val_score(mf_cv, X_tr, cv)
+                score = cross_val_score(mf_cv, X_tr, cv)
                 mf_scores.append(score)
 
             mf_scores = np.array(mf_scores).mean(axis=1)
@@ -167,7 +168,7 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
                          label=this_data['name'])
             # ax_tuning.plot(this_data['alpha'], this_data['cv_alpha'],
             #                label=this_data['name'])
-        ref_ax.legend()
+        # ref_ax.legend()
         # ax_tuning.set_xscale('log')
         # ax_tuning.set_xlabel('$\\alpha$')
         # ax_tuning.set_ylabel('RMSE on test set')
@@ -184,7 +185,7 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 if __name__ == '__main__':
     # main('100k')
-    # main('1m')
+    main('1m')
     # main('10m')
-    main('netflix')
-    # plot_benchs()
+    # main('netflix')
+    plot_benchs()

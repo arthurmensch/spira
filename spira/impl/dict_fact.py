@@ -13,6 +13,7 @@ from spira.metrics import rmse
 
 class DictMF(BaseEstimator):
     def __init__(self, alpha=1.0, learning_rate=1.,
+                 offset=0,
                  n_components=30, n_epochs=2,
                  normalize=False,
                  fit_intercept=False,
@@ -26,6 +27,7 @@ class DictMF(BaseEstimator):
         self.normalize = normalize
         self.callback = callback
         self.learning_rate = learning_rate
+        self.offset = offset
         self.alpha = alpha
         self.n_components = n_components
         self.n_epochs = n_epochs
@@ -97,6 +99,7 @@ class DictMF(BaseEstimator):
         if self.backend == 'c':
             _online_dl(X,
                        float(self.alpha), float(self.learning_rate),
+                       float(self.offset),
                        self.A_, self.B_,
                        self.counter_,
                        self.G_, self.T_,
@@ -167,6 +170,7 @@ def _online_refit(X, alpha, P, Q, verbose):
 
 def _online_dl(X,
                alpha, learning_rate,
+               offset,
                A, B, counter,
                G, T,
                P, Q,
@@ -189,6 +193,7 @@ def _online_dl(X,
                     row_range,
                     max_idx_size,
                     alpha, learning_rate,
+                    offset,
                     A, B,
                     counter,
                     G, T,

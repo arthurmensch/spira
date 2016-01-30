@@ -3,6 +3,8 @@
 # cython: boundscheck=False
 # cython: wraparound=False
 
+
+cimport numpy as np
 from libc.math cimport sqrt
 
 from scipy.linalg.cython_blas cimport dger, dgemm, dgemv
@@ -109,10 +111,29 @@ cpdef int _update_code_full_fast(double[:] X_data, int[:] X_indices,
             return -1
     return 0
 
+cdef get_w(double[:] w, long[:] idx, long[:] counter, long batch_size,
+           long learning_rate):
+    cdef int idx_len = idx.shape[0]
+    cdef int count = counter[0]
+    cdef int i, jj, j
+    w[0] = 1
+    for i in range(count + 1, count + 1 + batch_size):
+        w[0] *= (1 - pow(i, - learning_rate))
+    w[0] = 1 - w[0]
+
+    for jj in range(idx_len):
+        j = idx[jj]
+        count = counter[j + 1]
+        w[jj + 1] = 1
+        for i in range(count + 1, count + 1 + batch_size):
+            w[jj + 1] *= (1 - pow(i, - learning_rate))
+        w[jj + 1] = 1 - w[jj + 1]
+
 
 cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
                   int[:] X_indptr, long n_rows, long n_cols,
                   double alpha, double learning_rate,
+                  double offset,
                   double[::1, :] A, double[::1, :] B,
                   double[::1, :] G, double[::1, :] T,
                   long[:] counter,
@@ -140,7 +161,10 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
     cdef int nnz
     cdef double reg, v
     cdef int last = 0
-    cdef double w_B, w_A, mu_A
+    cdef double w_B, w_A
+
+    # get_w(double[:] w, idx, long[:] counter, long batch_size,
+    #            long learning_rate)
 
     for jj in range(n_cols):
         idx_mask[jj] = 0
@@ -207,11 +231,10 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
         # A *= 1 - w_A * len_batch
         # A += P[row_batch].T.dot(P[row_batch]) * w_A
         counter[0] += 1
-        w_A = pow(counter[0], -learning_rate)
-        mu_A = 1 - w_A
+        w_A = pow((1. + offset) /(offset + counter[0]), learning_rate)
         for k in range(n_components):
             for m in range(n_components):
-                A[k, m] *= mu_A
+                A[k, m] *= 1 - w_A
         dger(&n_components, &n_components,
              &w_A,
              P_batch_ptr + ii * n_components, &one,
@@ -225,11 +248,11 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
         for jj in range(nnz):
             j = X_indices[X_indptr[i] + jj]
             idx_mask[j] = 1
-            # counter[j + 1] += 1
-            # w_B = pow(counter[j + 1], -learning_rate)
+            counter[j + 1] += 1
+            w_B = pow((1. + offset) /(offset + counter[j + 1]), learning_rate)
             for k in range(n_components):
-                B[k, j] = (1 - w_A) * B[k, j] + \
-                                 w_A * P_batch[k, ii]\
+                B[k, j] = (1 - w_B) * B[k, j] + \
+                                 w_B * P_batch[k, ii]\
                                  * X_data[X_indptr[i] + jj]
         # dger(&n_components, &nnz,
         #      &w_B,
@@ -286,6 +309,7 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
               old_sub_G_ptr, &n_components
               )
 
+    # R = B - AQ
     dgemm(&NTRANS, &NTRANS,
           &n_components, &idx_len, &n_components,
           &moned,
@@ -341,6 +365,7 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
                     long[:] row_range,
                     long max_idx_size,
                     double alpha, double learning_rate,
+                    double offset,
                     double[::1, :] A, double[::1, :] B,
                     long[:] counter,
                     double[::1, :] G, double[::1, :] T,
@@ -393,6 +418,7 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
             last = _update_code_fast(X_data, X_indices,
                                      X_indptr, n_rows, n_cols,
                                      alpha, learning_rate,
+                                     offset,
                                      A, B, G, T,
                                      counter,
                                      P, Q,
