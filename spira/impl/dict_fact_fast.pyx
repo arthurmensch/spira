@@ -254,6 +254,8 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
             idx_mask[j] = 1
             counter[j + 1] += 1
             w_B = pow((1. + offset) /(offset + counter[j + 1]), learning_rate)
+            if jj == 0:
+                print(w_B)
             for k in range(n_components):
                 B[k, j] = (1 - w_B) * B[k, j] + \
                                  w_B * P_batch[k, ii]\
