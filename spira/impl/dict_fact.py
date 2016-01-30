@@ -18,7 +18,7 @@ class DictMF(BaseEstimator):
                  normalize=False,
                  fit_intercept=False,
                  callback=None, random_state=None, verbose=0,
-                 impute=True,
+                 impute=False,
                  batch_size=1,
                  dict_init=None,
                  backend='c'):
@@ -112,7 +112,8 @@ class DictMF(BaseEstimator):
                        random_state,
                        self.verbose,
                        self.impute,
-                       self._callback)
+                       self._callback,
+                       True)
         else:
             _online_dl_slow(X,
                             float(self.alpha), float(self.learning_rate),
@@ -138,8 +139,10 @@ class DictMF(BaseEstimator):
     def predict(self, X):
         X = sp.csr_matrix(X)
         out = np.zeros_like(X.data)
+        mult = self.Q_mult_[:, np.newaxis] if False else np.exp(self.Q_mult_[:,
+                                                                np.newaxis])
         _predict(out, X.indices, X.indptr, self.P_.T,
-                 self.Q_ * self.Q_mult_[:, np.newaxis])
+                 self.Q_ * mult)
 
         if self.normalize:
             for i in range(X.shape[0]):
@@ -167,7 +170,7 @@ def _online_refit(X, alpha, P, Q, Q_mult, verbose):
     if verbose:
         print('Refitting code')
     _update_code_full_fast(X.data, X.indices, X.indptr, n_rows, n_cols,
-                           alpha, P, Q, Q_mult, Q_idx, C)
+                           alpha, P, Q, Q_mult, Q_idx, C, True)
 
 
 def _online_dl(X,
@@ -179,7 +182,7 @@ def _online_dl(X,
                Q_mult,
                fit_intercept, n_epochs, batch_size, random_state, verbose,
                impute,
-               callback,):
+               callback, mult_exp=True):
     row_nnz = X.getnnz(axis=1)
     n_cols = X.shape[1]
     max_idx_size = min(row_nnz.max() * batch_size, n_cols)
@@ -204,7 +207,7 @@ def _online_dl(X,
                     Q_mult,
                     n_epochs, batch_size,
                     random_seed,
-                    verbose, fit_intercept, impute, callback)
+                    verbose, fit_intercept, impute, mult_exp, callback)
 
 
 def _online_refit_slow(X, alpha, P, Q, verbose):
