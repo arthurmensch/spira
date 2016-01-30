@@ -65,8 +65,8 @@ class Callback(object):
 
 def main(version='100k'):
     params = {}
-    params['100k'] = dict(learning_rate=.75, batch_size=10, offset=10, alpha=6)
-    params['1m'] = dict(learning_rate=.75, batch_size=100, offset=10, alpha=.5)
+    params['100k'] = dict(learning_rate=.5, batch_size=10, offset=0, alpha=2)
+    params['1m'] = dict(learning_rate=.5, batch_size=10, offset=10, alpha=.01)
     params['10m'] = dict(learning_rate=.5, batch_size=400, offset=10, alpha=.5)
 
     if version in ['100k', '1m', '10m']:
@@ -121,13 +121,14 @@ def main(version='100k'):
                 mf_cv.set_params(alpha=alpha)
                 mf_cv.fit(X_tr)
                 score = [mf_cv.score(X_te)]
-                score = cross_val_score(mf_cv, X_tr, cv)
+                # score = cross_val_score(mf_cv, X_tr, cv)
                 mf_scores.append(score)
 
             mf_scores = np.array(mf_scores).mean(axis=1)
             best_alpha_arg = mf_scores.argmin()
             best_alpha = alphas[best_alpha_arg]
             mf.set_params(alpha=best_alpha)
+
         cb = Callback(X_tr, X_te, refit=isinstance(mf, DictMF))
         mf.set_params(callback=cb)
         mf.fit(X_tr)

@@ -5,7 +5,7 @@
 
 
 cimport numpy as np
-from libc.math cimport sqrt
+from libc.math cimport sqrt, log, exp
 
 from scipy.linalg.cython_blas cimport dger, dgemm, dgemv
 from scipy.linalg.cython_lapack cimport dposv
@@ -138,6 +138,7 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
                   double[::1, :] G, double[::1, :] T,
                   long[:] counter,
                   double[::1, :] P, double[::1, :] Q,
+                  double[:] Q_mult,
                   long[:] row_batch,
                   double[::1, :] C,
                   double[::1, :] Q_idx,
@@ -175,7 +176,9 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
         # print('Filling Q')
 
         for jj in range(nnz):
-            Q_idx[:, jj] = Q[:, X_indices[X_indptr[i] + jj]]
+            for k in range(n_components):
+                # Q_idx[:, jj] = Q[k, X_indices[X_indptr[i] + jj]] * exp(Q_mult[k])
+                Q_idx[:, jj] = Q[k, X_indices[X_indptr[i] + jj]] * (Q_mult[k])
         # print('Computing Gram')
 
         if impute:
@@ -272,15 +275,16 @@ cdef int _update_code_fast(double[:] X_data, int[:] X_indices,
 
 
 cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
-                             double[::1, :] G,
-                             double[::1, :] Q,
-                             double[::1, :] R,
-                             double[::1, :] Q_idx,
-                             double[::1, :] old_sub_G,
-                             long[:] idx,
-                             bint fit_intercept, long[:] components_range,
-                             double[:] norm,
-                             bint impute):
+                            double[::1, :] G,
+                            double[::1, :] Q,
+                            double[:] Q_norm,
+                            double[:] Q_mult,
+                            double[::1, :] R,
+                            double[::1, :] Q_idx,
+                            double[::1, :] old_sub_G,
+                            long[:] idx,
+                            bint fit_intercept, long[:] components_range,
+                            bint impute):
 
     cdef int n_components = Q.shape[0]
     cdef int idx_len = idx.shape[0]
@@ -291,13 +295,18 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
     cdef double* R_ptr = &R[0, 0]
     cdef double* G_ptr = &G[0, 0]
     cdef double* old_sub_G_ptr = &old_sub_G[0, 0]
-    cdef double new_norm
+    cdef double old_norm
     cdef unsigned int k, kk, j, jj
+
+    # print("Q mult: % .4f" % Q_mult[1])
+    # print("Q norm: % .4f" % Q_norm[1])
 
     for jj in range(idx_len):
         j = idx[jj]
         R[:, jj] = B[:, j]
-        Q_idx[:, jj] = Q[:, j]
+        for k in range(n_components):
+            Q_idx[k, jj] = Q[k, j] * Q_mult[k]
+            # Q_idx[k, jj] = Q[k, j] * exp(Q_mult[k])
 
     if impute:
         dgemm(&NTRANS, &TRANS,
@@ -320,31 +329,31 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
 
     for kk in range(components_range_len):
         k = components_range[kk]
-        norm[k] = 0
+        # old_norm = Q_norm[k]
+        # if k == 1:
+        #     print("Old norm %.2f" % old_norm)
         for jj in range(idx_len):
-            norm[k] += Q_idx[k, jj] * Q_idx[k, jj]
-        norm[k] = sqrt(norm[k])
-
-    for kk in range(components_range_len):
-        k = components_range[kk]
+            Q_norm[k] -= Q_idx[k, jj] ** 2
         dger(&n_components, &idx_len, &oned,
              A_ptr + k * n_components,
              &one, Q_idx_ptr + k, &n_components, R_ptr, &n_components)
-        new_norm = 0
         for jj in range(idx_len):
             Q_idx[k, jj] = R[k, jj] / A[k, k]
-            new_norm += Q_idx[k, jj] ** 2
-        new_norm = sqrt(new_norm) / norm[k]
-        if new_norm > 1:
+            Q[k, j] = Q_idx[k, jj] / Q_mult[k]
+            Q_norm[k] += Q_idx[k, jj] ** 2
+        # if k == 1:
+        #     print("New norm %.2f" % Q_norm[k])
+        if Q_norm[k] > 1:
+            Q_mult[k] /= sqrt(Q_norm[k])
+            # Q_mult[k] -= .5 * log(Q_norm[k])
+            # Live update of Q_idx
             for jj in range(idx_len):
-                Q_idx[k, jj] /= new_norm
+                Q_idx[k, jj] /= sqrt(Q_norm[k])
+            Q_norm[k] = 1
         # R -= A[:, k] Q[:, k].T
         dger(&n_components, &idx_len, &moned,
              A_ptr + k  * n_components,
              &one, Q_idx_ptr + k, &n_components, R_ptr, &n_components)
-    for jj in range(idx_len):
-        j = idx[jj]
-        Q[:, j] = Q_idx[:, jj]
 
     if impute:
         dgemm(&NTRANS, &TRANS,
@@ -395,13 +404,22 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
     cdef char[:] idx_mask = np.zeros(n_cols, dtype='i1')
     cdef long[:] idx_concat = np.zeros(max_idx_size, dtype='int')
     cdef long[:] components_range
-    cdef double[:] norm = np.zeros(n_components)
+    cdef double[:] Q_norm = np.zeros(n_components)
+    # cdef double[:] Q_mult = np.zeros(n_components)
+    cdef double[:] Q_mult = np.ones(n_components)
     cdef int i, start, stop, last, last_call = 0
     cdef long[:] row_batch
 
     cdef double* Q_ptr = &Q[0, 0]
     cdef double* G_ptr = &G[0, 0]
 
+    for k in range(n_components):
+        for j in range(n_cols):
+            Q_norm[k] += Q[k, j] ** 2
+        if Q_norm[k] > 1:
+            # Q_mult[k] -= .5 * log(Q_norm[k])
+            Q_mult[k] /= sqrt(Q_norm[k])
+            Q_norm[k] = 1
     if not fit_intercept:
         components_range = np.arange(n_components)
     else:
@@ -422,6 +440,7 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
                                      A, B, G, T,
                                      counter,
                                      P, Q,
+                                     Q_mult,
                                      row_batch,
                                      C,
                                      Q_idx,
@@ -436,14 +455,28 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
                     B,
                     G,
                     Q,
+                    Q_norm,
+                    Q_mult,
                     R,
                     Q_idx,
                     old_sub_G,
                     idx_concat[:last],
                     fit_intercept,
                     components_range,
-                    norm,
                     impute)
+            # Numerical stability
+            min = 1
+            for k in range(n_components):
+                if Q_mult[k] < min:
+                    min = Q_mult[k]
+            if min < 1e-10:
+                for k in range(n_components):
+                    for j in range(n_cols):
+                        # Q[k, j] *= exp(Q_mult[k])
+                        Q[k, j] *= Q_mult[k]
+                    # Q_mult[k] = 0
+                    Q_mult[k] = 1
+
             if verbose and counter[0] // (n_rows // verbose) == last_call + 1:
                     print("Iteration %i" % (counter[0]))
                     last_call += 1
