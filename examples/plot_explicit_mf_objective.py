@@ -65,13 +65,16 @@ class Callback(object):
         self.times.append(time.clock() - self.start_time - self.test_time)
 
 
-def main(version='100k', n_jobs=1, random_state=0):
-    params = {}
-    params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=5)
-    params['1m'] = dict(learning_rate=.75, batch_size=100, offset=0,
+def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
+    dl_params = {}
+    dl_params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=5)
+    dl_params['1m'] = dict(learning_rate=.75, batch_size=100, offset=0,
                         alpha=.8)
-    params['10m'] = dict(learning_rate=.75, batch_size=1000, offset=0,
+    dl_params['10m'] = dict(learning_rate=.75, batch_size=1000, offset=0,
                          alpha=3)
+    dl_params['netflix'] = dict(learning_rate=.75, batch_size=10000, offset=0,
+                         alpha=1.2)
+    cd_params = {'100k': .1, '1m': .03, '10m': .04, 'netflix': .1}
 
     if version in ['100k', '1m', '10m']:
         X = load_movielens(version)
@@ -86,7 +89,7 @@ def main(version='100k', n_jobs=1, random_state=0):
     cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=.15, normalize=True,
                        verbose=1, )
     dl_mf = DictMF(n_components=30, n_epochs=20, alpha=.8, verbose=5,
-                   batch_size=1, normalize=True,
+                   batch_size=10000, normalize=True,
                    fit_intercept=True,
                    random_state=0,
                    learning_rate=.75,
@@ -95,7 +98,11 @@ def main(version='100k', n_jobs=1, random_state=0):
     print(dl_mf.batch_size)
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H'
                                                  '-%M-%S')
-    output_dir = expanduser(join('~/output/recommender/', 'benches_ncv'))
+    if cross_val:
+        subdir = 'benches_ncv'
+    else:
+        subdir = 'benches'
+    output_dir = expanduser(join('~/output/recommender/', subdir))
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
@@ -113,29 +120,38 @@ def main(version='100k', n_jobs=1, random_state=0):
         results = {}
 
     for mf in mf_list:
-        cv = ShuffleSplit(n_iter=3, train_size=0.66, random_state=0)
-        if isinstance(mf, DictMF):
-            mf.set_params(learning_rate=params[version]['learning_rate'],
-                          batch_size=params[version]['batch_size'])
-                          # alpha=params[version]['alpha'])
-        mf_scores = Parallel(n_jobs=n_jobs, verbose=10)(
-            delayed(single_fit)(mf, alpha, X_tr, cv) for alpha in alphas)
-        mf_scores = np.array(mf_scores).mean(axis=1)
-        best_alpha_arg = mf_scores.argmin()
-        best_alpha = alphas[best_alpha_arg]
-        mf.set_params(alpha=best_alpha)
+        if not cross_val:
+            if isinstance(mf, DictMF):
+                mf.set_params(learning_rate=dl_params[version]['learning_rate'],
+                              batch_size=dl_params[version]['batch_size'],
+                              alpha=dl_params[version]['alpha'])
+            else:
+                mf.set_params(alpha=cd_params[version]['alpha'])
+        else:
+            if isinstance(mf, DictMF):
+                mf.set_params(learning_rate=dl_params[version]['learning_rate'],
+                              batch_size=dl_params[version]['batch_size'])
+            cv = ShuffleSplit(n_iter=3, train_size=0.66, random_state=0)
+            mf_scores = Parallel(n_jobs=n_jobs, verbose=10)(
+                delayed(single_fit)(mf, alpha, X_tr, cv) for alpha in alphas)
+            mf_scores = np.array(mf_scores).mean(axis=1)
+            best_alpha_arg = mf_scores.argmin()
+            best_alpha = alphas[best_alpha_arg]
+            mf.set_params(alpha=best_alpha)
 
-        # CD param for 10m curve
-        # mf.set_params(alpha=0.04    )
         cb = Callback(X_tr, X_te, refit=isinstance(mf, DictMF))
         mf.set_params(callback=cb)
         mf.fit(X_tr)
         results[dict_id[mf]] = dict(name=names[dict_id[mf]],
-                                    # cv_alpha=mf_scores.tolist(),
-                                    # alpha=alphas.tolist(),
-                                    best_alpha=mf.alpha, time=cb.times,
+                                    time=cb.times,
                                     rmse=cb.rmse)
-        with open(join(output_dir, 'results_%s_%s.json' % (version, random_state)),
+        if cross_val:
+            results['alphas'] = alphas.tolist()
+            results['cv_alpha'] = mf_scores.tolist()
+            results['best_alpha'] = mf.alpha
+
+        with open(join(output_dir, 'results_%s_%s.json' % (version,
+                                                           random_state)),
                   'w+') as f:
             json.dump(results, f)
 
@@ -197,9 +213,9 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 
 if __name__ == '__main__':
-    # main('netflix')
+    main('netflix', cross_val=False)
     # main('100k')
     # main('1m')
-    for i in range(0, 3):
-        main('10m', 15, i)
+    # for i in range(0, 3):
+    #     main('10m', 15, i)
     # plot_benchs()
