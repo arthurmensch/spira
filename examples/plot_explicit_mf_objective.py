@@ -104,10 +104,10 @@ def main(version='100k', n_jobs=1, random_state=0):
     dict_id = {cd_mf: 'cd', dl_mf: 'dl'}
     names = {'cd': 'Coordinate descent', 'dl': 'Proposed online masked MF'}
 
-    if os.path.exists(join(output_dir, 'results_%s_%s.json' % version,
-                           random_state)):
-        with open(join(output_dir, 'results_%s.json_%s' % version,
-                       random_state), 'r') as f:
+    if os.path.exists(join(output_dir, 'results_%s_%s.json' % (version,
+                           random_state))):
+        with open(join(output_dir, 'results_%s.json_%s' % (version,
+                       random_state)), 'r') as f:
             results = json.load(f)
     else:
         results = {}
@@ -135,7 +135,7 @@ def main(version='100k', n_jobs=1, random_state=0):
                                     # alpha=alphas.tolist(),
                                     best_alpha=mf.alpha, time=cb.times,
                                     rmse=cb.rmse)
-        with open(join(output_dir, 'results_%s_%s.json' % version, random_state),
+        with open(join(output_dir, 'results_%s_%s.json' % (version, random_state)),
                   'w+') as f:
             json.dump(results, f)
 
