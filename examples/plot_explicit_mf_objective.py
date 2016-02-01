@@ -67,7 +67,7 @@ class Callback(object):
 
 def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
     dl_params = {}
-    dl_params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=.5)
+    dl_params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=1)
     dl_params['1m'] = dict(learning_rate=.75, batch_size=100, offset=0,
                         alpha=.8)
     dl_params['10m'] = dict(learning_rate=.75, batch_size=500, offset=0,
@@ -95,6 +95,7 @@ def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
                    random_state=0,
                    learning_rate=.75,
                    impute=False,
+                   partial=False,
                    backend='c')
     dl_mf_partial = DictMF(n_components=30, n_epochs=5, alpha=1.17, verbose=5,
                    batch_size=10000, normalize=True,
@@ -116,7 +117,7 @@ def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
         os.makedirs(output_dir)
 
     alphas = np.logspace(-2, 1, 30)
-    mf_list = [dl_mf_partial]
+    mf_list = [dl_mf_partial, dl_mf, cd_mf]
     dict_id = {cd_mf: 'cd', dl_mf: 'dl', dl_mf_partial: 'dl_partial'}
     names = {'cd': 'Coordinate descent', 'dl': 'Proposed online masked MF',
              'dl_partial': 'Proposed algorithm (with partial projection)'}
@@ -224,8 +225,8 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 
 if __name__ == '__main__':
-    # main('netflix', n_jobs=1, cross_val=False)
-    main('100k', n_jobs=3, cross_val=False)
+    main('netflix', n_jobs=30, cross_val=True)
+    # main('100k', n_jobs=3, cross_val=True)
     # for i in range(5):
     #     main('1m', cross_val=True, n_jobs=15, random_state=i)
     #     main('10m', n_jobs=15, random_state=i, cross_val=True)

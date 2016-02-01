@@ -1,4 +1,7 @@
 # encoding: utf-8
+# cython: cdivision=True
+# cython: boundscheck=False
+# cython: wraparound=False
 
 cimport numpy as np
 from libc.math cimport sqrt, log, exp, ceil, pow
@@ -341,6 +344,7 @@ cdef void _update_dict_fast(double[::1, :] A, double[::1, :] B,
     for kk in range(components_range_len):
         k = components_range[kk]
         if partial:
+            old_norm = 0
             Q_norm[k] = 0
             for jj in range(idx_len):
                 old_norm += Q_idx[k, jj] ** 2
@@ -459,7 +463,6 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
     for epoch in range(n_epochs):
         _shuffle(row_range, &seed)
         for i in range(n_batches):
-            print(Q_mult[10])
             start = i * batch_size
             stop = start + batch_size
             if stop > len_row_range:
@@ -500,17 +503,19 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
                     partial,
                     exp_mult)
             # Numerical stability
-            min = 0 if exp_mult else 1
-            for k in range(n_components):
-                if Q_mult[k] < min:
-                    min = Q_mult[k]
-            lim = -50 if exp_mult else 1e-10
-            if min <= 1e-3:
+
+            if not partial:
+                min = 0 if exp_mult else 1
                 for k in range(n_components):
-                    this_Q_mult = exp(Q_mult[k]) if exp_mult else Q_mult[k]
-                    for j in range(n_cols):
-                            Q[k, j] *= this_Q_mult
-                    Q_mult[k] = 0 if exp_mult else 1
+                    if Q_mult[k] < min:
+                        min = Q_mult[k]
+                lim = -50 if exp_mult else 1e-10
+                if min <= 1e-3:
+                    for k in range(n_components):
+                        this_Q_mult = exp(Q_mult[k]) if exp_mult else Q_mult[k]
+                        for j in range(n_cols):
+                                Q[k, j] *= this_Q_mult
+                        Q_mult[k] = 0 if exp_mult else 1
 
             if verbose and counter[0] // int(ceil(
                         len_row_range / verbose)) == last_call + 1:
