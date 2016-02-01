@@ -21,6 +21,7 @@ class DictMF(BaseEstimator):
                  impute=False,
                  batch_size=1,
                  dict_init=None,
+                 partial=False,
                  backend='c'):
         self.batch_size = batch_size
         self.fit_intercept = fit_intercept
@@ -35,6 +36,7 @@ class DictMF(BaseEstimator):
         self.verbose = verbose
         self.impute = impute
         self.dict_init = dict_init
+        self.partial = partial
         self.backend = backend
 
     def _init(self, X, random_state):
@@ -81,8 +83,10 @@ class DictMF(BaseEstimator):
 
     def _refit_code(self, X):
         X = sp.csr_matrix(X, dtype=np.float64)
+        row_range = X.getnnz(axis=1).nonzero()[0]
         if self.backend == 'c':
             _online_refit(X, self.alpha, self.P_, self.Q_, self.Q_mult_,
+                          row_range,
                           self.verbose)
         else:
             _online_refit_slow(X, self.alpha, self.P_, self.Q_, self.verbose)
@@ -112,8 +116,10 @@ class DictMF(BaseEstimator):
                        random_state,
                        self.verbose,
                        self.impute,
+                       self.partial,
+                       True,
                        self._callback,
-                       True)
+                       )
         else:
             _online_dl_slow(X,
                             float(self.alpha), float(self.learning_rate),
@@ -139,8 +145,8 @@ class DictMF(BaseEstimator):
     def predict(self, X):
         X = sp.csr_matrix(X)
         out = np.zeros_like(X.data)
-        mult = self.Q_mult_[:, np.newaxis] if False else np.exp(self.Q_mult_[:,
-                                                                np.newaxis])
+        mult = self.Q_mult_[:, np.newaxis] if False else np.exp(
+            self.Q_mult_[:, np.newaxis])
         _predict(out, X.indices, X.indptr, self.P_.T,
                  self.Q_ * mult)
 
@@ -158,7 +164,7 @@ class DictMF(BaseEstimator):
         return rmse(X, X_pred)
 
 
-def _online_refit(X, alpha, P, Q, Q_mult, verbose):
+def _online_refit(X, alpha, P, Q, Q_mult, row_range, verbose):
     n_rows, n_cols = X.shape
     n_components = P.shape[0]
 
@@ -170,6 +176,7 @@ def _online_refit(X, alpha, P, Q, Q_mult, verbose):
     if verbose:
         print('Refitting code')
     _update_code_full_fast(X.data, X.indices, X.indptr, n_rows, n_cols,
+                           row_range,
                            alpha, P, Q, Q_mult, Q_idx, C, True)
 
 
@@ -182,7 +189,9 @@ def _online_dl(X,
                Q_mult,
                fit_intercept, n_epochs, batch_size, random_state, verbose,
                impute,
-               callback, mult_exp=True):
+               partial,
+               mult_exp,
+               callback):
     row_nnz = X.getnnz(axis=1)
     n_cols = X.shape[1]
     max_idx_size = min(row_nnz.max() * batch_size, n_cols)
@@ -207,7 +216,7 @@ def _online_dl(X,
                     Q_mult,
                     n_epochs, batch_size,
                     random_seed,
-                    verbose, fit_intercept, impute, mult_exp, callback)
+                    verbose, fit_intercept, partial, impute, mult_exp, callback)
 
 
 def _online_refit_slow(X, alpha, P, Q, verbose):
@@ -248,7 +257,7 @@ def _update_code_slow(X, alpha, learning_rate,
             red_Qx = T[:, idx + 1].sum(axis=1)
             T[:, 0] += red_Qx
 
-            v = 0 # nnz / n_cols
+            v = 0  # nnz / n_cols
             Qx = v * red_Qx + (1 - v) * T[:, 0]
             G.flat[::n_components + 1] += 2 * alpha
         else:
@@ -281,7 +290,7 @@ def _update_code_slow(X, alpha, learning_rate,
     else:
         idx = X_indices
 
-    return idx #, x
+    return idx  # , x
 
 
 def _update_dict_slow(X, A, B, G, Q, Q_idx, idx, fit_intercept,
@@ -318,6 +327,7 @@ def _update_dict_slow(X, A, B, G, Q, Q_idx, idx, fit_intercept,
 
     if impute:
         G += Q_idx.dot(Q_idx.T) - old_sub_G
+
 
 def _online_dl_slow(X,
                     alpha, learning_rate,

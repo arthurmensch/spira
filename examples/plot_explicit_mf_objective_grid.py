@@ -71,7 +71,7 @@ X_te = load(expanduser('~/spira_data/nf_prize/X_te.pkl'))
 
 def call(n_components, alpha, learning_rate, batch_size):
     cb = Callback(X_tr, X_te)
-    mf = DictMF(n_components=n_components, n_epochs=5, alpha=alpha, verbose=10,
+    mf = DictMF(n_components=n_components, n_epochs=8, alpha=alpha, verbose=10,
                 batch_size=batch_size,
                 normalize=True,
                 fit_intercept=True,
@@ -100,7 +100,7 @@ res = Parallel(n_jobs=20,
                                          learning_rate,
                                          batch_size)
                            for n_components in [60]
-                           for alpha in np.logspace(-1, 2, 20)
+                           for alpha in np.linspace(0.7, 1.7, 20)
                            for batch_size in np.logspace(4, 4, 1).astype('int')
                            for learning_rate in np.linspace(.75, .75, 1))
 

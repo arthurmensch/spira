@@ -67,14 +67,15 @@ class Callback(object):
 
 def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
     dl_params = {}
-    dl_params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=5)
+    dl_params['100k'] = dict(learning_rate=1, batch_size=10, offset=0, alpha=.5)
     dl_params['1m'] = dict(learning_rate=.75, batch_size=100, offset=0,
                         alpha=.8)
-    dl_params['10m'] = dict(learning_rate=.75, batch_size=1000, offset=0,
+    dl_params['10m'] = dict(learning_rate=.75, batch_size=500, offset=0,
                          alpha=3)
-    dl_params['netflix'] = dict(learning_rate=.75, batch_size=10000, offset=0,
+    dl_params['netflix'] = dict(learning_rate=.75, batch_size=4000, offset=0,
                          alpha=1.2)
-    cd_params = {'100k': .1, '1m': .03, '10m': .04, 'netflix': .1}
+    cd_params = {'100k': dict(alpha=.1), '1m': dict(alpha=.03), '10m': dict(alpha=.04),
+                 'netflix': dict(alpha=.1)}
 
     if version in ['100k', '1m', '10m']:
         X = load_movielens(version)
@@ -86,18 +87,26 @@ def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
         X_tr = load(expanduser('~/spira_data/nf_prize/X_tr.pkl'))
         X_te = load(expanduser('~/spira_data/nf_prize/X_te.pkl'))
 
-    cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=.15, normalize=True,
+    cd_mf = ExplicitMF(n_components=30, max_iter=50, alpha=.1, normalize=True,
                        verbose=1, )
-    dl_mf = DictMF(n_components=30, n_epochs=20, alpha=.8, verbose=5,
+    dl_mf = DictMF(n_components=30, n_epochs=5, alpha=1.17, verbose=5,
                    batch_size=10000, normalize=True,
                    fit_intercept=True,
                    random_state=0,
                    learning_rate=.75,
                    impute=False,
                    backend='c')
-    print(dl_mf.batch_size)
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H'
-                                                 '-%M-%S')
+    dl_mf_partial = DictMF(n_components=30, n_epochs=5, alpha=1.17, verbose=5,
+                   batch_size=10000, normalize=True,
+                   fit_intercept=True,
+                   random_state=0,
+                   learning_rate=.75,
+                   impute=False,
+                   partial=True,
+                   backend='c')
+
+    # timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H'
+    #                                              '-%M-%S')
     if cross_val:
         subdir = 'benches_ncv'
     else:
@@ -107,19 +116,21 @@ def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
         os.makedirs(output_dir)
 
     alphas = np.logspace(-2, 1, 30)
-    mf_list = [cd_mf, dl_mf]
-    dict_id = {cd_mf: 'cd', dl_mf: 'dl'}
-    names = {'cd': 'Coordinate descent', 'dl': 'Proposed online masked MF'}
+    mf_list = [dl_mf_partial]
+    dict_id = {cd_mf: 'cd', dl_mf: 'dl', dl_mf_partial: 'dl_partial'}
+    names = {'cd': 'Coordinate descent', 'dl': 'Proposed online masked MF',
+             'dl_partial': 'Proposed algorithm (with partial projection)'}
 
     if os.path.exists(join(output_dir, 'results_%s_%s.json' % (version,
                            random_state))):
-        with open(join(output_dir, 'results_%s.json_%s' % (version,
+        with open(join(output_dir, 'results_%s_%s.json' % (version,
                        random_state)), 'r') as f:
             results = json.load(f)
     else:
         results = {}
 
     for mf in mf_list:
+        results[dict_id[mf]] = {}
         if not cross_val:
             if isinstance(mf, DictMF):
                 mf.set_params(learning_rate=dl_params[version]['learning_rate'],
@@ -177,7 +188,7 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
     ylims = {'100k': [.90, .96], '1m': [.865, .915], '10m': [.80, .868]}
     xlims = {'100k': [0.0001, 10], '1m': [0.05, 10], '10m': [0.5, 120]}
 
-    for i, version in enumerate(['1m', '10m']):
+    for i, version in enumerate(['1m', '10m', 'netflix']):
         with open(join(output_dir, 'results_%s.json' % version), 'r') as f:
             data = json.load(f)
         ax_time = fig.add_subplot(gs[0, i])
@@ -213,9 +224,9 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 
 if __name__ == '__main__':
-    main('netflix', cross_val=False)
-    # main('100k')
-    # main('1m')
-    # for i in range(0, 3):
-    #     main('10m', 15, i)
+    # main('netflix', n_jobs=1, cross_val=False)
+    main('100k', n_jobs=3, cross_val=False)
+    # for i in range(5):
+    #     main('1m', cross_val=True, n_jobs=15, random_state=i)
+    #     main('10m', n_jobs=15, random_state=i, cross_val=True)
     # plot_benchs()

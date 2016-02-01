@@ -30,6 +30,10 @@ def configuration(parent_package='', top_path=None):
                          sources=['dict_fact_fast.c'],
                          include_dirs=[numpy.get_include()])
 
+    config.add_extension('dict_fact_fast_partial',
+                         sources=['dict_fact_fast_partial.c'],
+                         include_dirs=[numpy.get_include()])
+
     config.add_subpackage('tests')
 
     return config
