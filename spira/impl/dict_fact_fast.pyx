@@ -4,7 +4,7 @@
 # cython: wraparound=False
 
 cimport numpy as np
-from libc.math cimport sqrt, log, exp, ceil, pow
+from libc.math cimport sqrt, log, exp, ceil, pow, fabs
 
 from scipy.linalg.cython_blas cimport dger, dgemm, dgemv
 from scipy.linalg.cython_lapack cimport dposv
@@ -442,6 +442,8 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
     cdef double* Q_ptr = &Q[0, 0]
     cdef double* G_ptr = &G[0, 0]
 
+    cdef double new_rmse, old_rmse
+
     cdef double min
 
     for k in range(n_components):
@@ -459,8 +461,9 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
         components_range = np.arange(n_components)
     else:
         components_range = np.arange(1, n_components)
-
+    old_rmse = 5
     for epoch in range(n_epochs):
+        n_batches = int(ceil(len_row_range / batch_size))
         _shuffle(row_range, &seed)
         for i in range(n_batches):
             start = i * batch_size
@@ -521,4 +524,9 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
                         len_row_range / verbose)) == last_call + 1:
                 print("Iteration %i" % (counter[0]))
                 last_call += 1
-                callback(G)
+                callback()
+        # if new_rmse > 0:
+        #     if fabs(new_rmse - old_rmse) / old_rmse < 0.01:
+        #         print('Reducing batch size')
+        #         batch_size //= 2
+        #         old_rmse = new_rmse

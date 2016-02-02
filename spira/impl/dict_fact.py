@@ -135,12 +135,13 @@ class DictMF(BaseEstimator):
                             self.impute,
                             self._callback)
         self._callback()
-        # self._refit_code(X)
-        # self._callback()
 
-    def _callback(self, G=None):
+    def _callback(self):
         if self.callback is not None:
             self.callback(self)
+            return self.callback.rmse[-1]
+        else:
+            return -1
 
     def predict(self, X):
         X = sp.csr_matrix(X)
