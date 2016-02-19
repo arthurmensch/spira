@@ -155,8 +155,8 @@ class DictMF(BaseEstimator):
             for i in range(X.shape[0]):
                 out[X.indptr[i]:X.indptr[i + 1]] += self.row_mean_[i]
             out += self.col_mean_.take(X.indices, mode='clip')
-        out[out > 5] = 5
-        out[out < 1] = 1
+            out[out > 5] = 5
+            out[out < 1] = 1
         return sp.csr_matrix((out, X.indices, X.indptr), shape=X.shape)
 
     def score(self, X):
@@ -306,7 +306,6 @@ def _update_dict_slow(X, A, B, G, Q, Q_idx, idx, fit_intercept,
 
     # norm = np.sqrt(np.sum(Q_idx ** 2, axis=1))
     norm = np.sqrt(np.sum(Q ** 2, axis=1))
-    print('Old norm : %.8f' % norm[1])
     # Intercept on first column
     for j in components_range:
         ger(1.0, A[j], Q_idx[j], a=R, overwrite_a=True)
@@ -316,8 +315,6 @@ def _update_dict_slow(X, A, B, G, Q, Q_idx, idx, fit_intercept,
         #     Q_idx[j] /= new_norm / norm[j]
         Q[j, idx] = Q_idx[j]
         new_norm = np.sqrt(np.sum(Q[j] ** 2))
-        if j == 1:
-            print('New norm : %.8f' % new_norm)
         if new_norm > 1:
             Q_idx[j] /= new_norm
             Q[j] /= new_norm

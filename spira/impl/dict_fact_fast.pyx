@@ -530,3 +530,5 @@ def _online_dl_fast(double[:] X_data, int[:] X_indices,
         #         print('Reducing batch size')
         #         batch_size //= 2
         #         old_rmse = new_rmse
+
+

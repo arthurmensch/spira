@@ -1,3 +1,4 @@
+
 # Author: Mathieu Blondel, Arthur Mensch
 # License: BSD
 from collections import OrderedDict
@@ -145,7 +146,7 @@ def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
                    learning_rate=.75,
                    impute=False,
                    partial=False,
-                   backend='c')
+                   backend='python')
     dl_mf_partial = DictMF(n_components=60, n_epochs=20, alpha=1.17, verbose=5,
                            batch_size=10000, normalize=True,
                            fit_intercept=True,
@@ -153,7 +154,7 @@ def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
                            learning_rate=.75,
                            impute=False,
                            partial=True,
-                           backend='c')
+                           backend='python')
 
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H'
                                                  '-%M-%S')
@@ -166,7 +167,7 @@ def main(version='100k', n_jobs=1, random_state=0, cross_val=False):
         os.makedirs(output_dir)
 
     alphas = np.logspace(-2, 1, 10)
-    mf_list = [dl_mf_partial, cd_mf]
+    mf_list = [dl_mf_partial]
     dict_id = {cd_mf: 'cd', dl_mf: 'dl', dl_mf_partial: 'dl_partial'}
     names = {'cd': 'Coordinate descent', 'dl': 'Proposed online masked MF',
              'dl_partial': 'Proposed algorithm (with partial projection)'}
@@ -391,12 +392,12 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 if __name__ == '__main__':
     # compare_learning_rate('netflix', n_jobs=10)
-    plot_learning_rate()
+    # plot_learning_rate()
     # main('netflix', n_jobs=30, cross_val=True)
-    # main('100k', n_jobs=3, cross_val=True)
+    main('100k', n_jobs=1, cross_val=False)
     # main('1m', cross_val=True, n_jobs=15, random_state=0)
     # main('10m', n_jobs=15, cross_val=True, random_state=0)
     # for i in range(5):
     #     main('1m', cross_val=True, n_jobs=15, random_state=i)
     #     main('10m', n_jobs=15, random_state=i, cross_val=True)
-    plot_benchs()
+    # plot_benchs()

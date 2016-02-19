@@ -2,14 +2,12 @@
 # License: BSD
 import os
 
-import numpy as np
 from sklearn.datasets.base import get_data_home as _get_data_home
-from sklearn.utils import check_array
 
-# try:
-#     import joblib
-# except ImportError:
-from sklearn.externals import joblib
+try:
+    import joblib
+except ImportError:
+    from sklearn.externals import joblib
 
 
 def get_data_home():
