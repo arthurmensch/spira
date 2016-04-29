@@ -260,12 +260,12 @@ def plot_learning_rate(output_dir=expanduser('~/output/recommender/learning_rate
             this_data['time'][j] -= this_data['time'][0] - min_time
     fig = plt.figure()
     # fig.subplots_adjust(right=0.7)
-    fig.subplots_adjust(bottom=0.29)
-    fig.subplots_adjust(top=0.95)
+    fig.subplots_adjust(bottom=0.33)
+    fig.subplots_adjust(top=0.99)
     fig.subplots_adjust(right=0.98)
 
     fig.set_figwidth(3.25653379549)
-    fig.set_figheight(1.45)
+    fig.set_figheight(1.25)
     ax = {}
     gs = gridspec.GridSpec(1, 2)
     palette = sns.cubehelix_palette(10, start=0, rot=3, hue=1, dark=.3,
@@ -289,11 +289,11 @@ def plot_learning_rate(output_dir=expanduser('~/output/recommender/learning_rate
         ax[j].spines['bottom'].set_color((.6, .6, .6))
         ax[j].xaxis.set_tick_params(color=(.6, .6, .6), which='both')
         ax[j].yaxis.set_tick_params(color=(.6, .6, .6), which='both')
-        ax[j].tick_params(axis='y', labelsize=4)
+        ax[j].tick_params(axis='y', labelsize=6)
 
     ax[0].set_ylabel('RMSE on test set')
     ax[0].set_xlabel('Epoch', ha='left', va='top')
-    ax[0].xaxis.set_label_coords(-.27, -0.041)
+    ax[0].xaxis.set_label_coords(-.18, -0.055)
 
     ax[0].set_xlim([.1, 20])
     ax[0].set_xticks([1, 10, 20])
@@ -308,10 +308,10 @@ def plot_learning_rate(output_dir=expanduser('~/output/recommender/learning_rate
 
     ax[0].set_ylim([0.795, 0.863])
     ax[1].set_ylim([0.93, 0.983])
-    ax[0].legend(ncol=4, loc='upper left', bbox_to_anchor=(0., -.13), numpoints=1, columnspacing=.3, frameon=False)
-    ax[0].annotate('Learning rate $\\beta$', xy=(1.65, -.34), xycoords='axes fraction')
+    ax[0].legend(ncol=4, loc='upper left', bbox_to_anchor=(0., -.13), fontsize=6, numpoints=1, columnspacing=.3, frameon=False)
+    ax[0].annotate('Learning rate $\\beta$', xy=(1.6, -.38), xycoords='axes fraction')
     ltext  = ax[0].get_legend().get_texts()
-    plt.setp(ltext, fontsize=5)
+    plt.setp(ltext, fontsize=7)
     plt.savefig(expanduser('~/output/icml/learning_rate.pdf'))
 
 
@@ -319,10 +319,10 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
     fig = plt.figure()
 
     fig.subplots_adjust(right=.9)
-    fig.subplots_adjust(top=.92)
-    fig.subplots_adjust(bottom=.09)
+    fig.subplots_adjust(top=.915)
+    fig.subplots_adjust(bottom=.12)
     fig.subplots_adjust(left=.08)
-    fig.set_figheight(fig.get_figheight() * 0.7 / 0.88 * 0.88)
+    fig.set_figheight(fig.get_figheight() * 0.66)
     gs = gridspec.GridSpec(1, 3, width_ratios=[1, 1, 1.5])
 
     ylims = {'100k': [.90, .96], '1m': [.865, .915], '10m': [.795, .868],
@@ -343,13 +343,14 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
         ax_time.spines['left'].set_color((.6, .6, .6))
         ax_time.spines['bottom'].set_color((.6, .6, .6))
         ax_time.xaxis.set_tick_params(color=(.6, .6, .6), which='both')
+        # ax_time.tick_params(axis='x', which='major', pad=2)
         ax_time.yaxis.set_tick_params(color=(.6, .6, .6), which='both')
 
         for tick in ax_time.xaxis.get_major_ticks():
-            tick.label.set_fontsize(5)
+            tick.label.set_fontsize(7)
             tick.label.set_color('black')
         for tick in ax_time.yaxis.get_major_ticks():
-            tick.label.set_fontsize(5)
+            tick.label.set_fontsize(7)
             tick.label.set_color('black')
 
         if i == 0:
@@ -370,7 +371,7 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
                          linewidth=2,
                          linestyle='-' if estimator != 'cd' else '--')
         if version == 'netflix':
-            ax_time.legend(loc='upper left', bbox_to_anchor=(.7, 1),
+            ax_time.legend(loc='upper left', bbox_to_anchor=(.65, 1.1),
                            numpoints=1,
                            frameon=False)
         ax_time.set_xscale('log')
@@ -392,12 +393,12 @@ def plot_benchs(output_dir=expanduser('~/output/recommender/benches')):
 
 if __name__ == '__main__':
     # compare_learning_rate('netflix', n_jobs=10)
-    # plot_learning_rate()
+    plot_learning_rate()
     # main('netflix', n_jobs=30, cross_val=True)
-    main('100k', n_jobs=1, cross_val=False)
+    # main('100k', n_jobs=1, cross_val=False)
     # main('1m', cross_val=True, n_jobs=15, random_state=0)
     # main('10m', n_jobs=15, cross_val=True, random_state=0)
     # for i in range(5):
     #     main('1m', cross_val=True, n_jobs=15, random_state=i)
     #     main('10m', n_jobs=15, random_state=i, cross_val=True)
-    # plot_benchs()
+    plot_benchs()
