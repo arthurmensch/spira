@@ -32,3 +32,5 @@ doc/samples
 *.tar.gz
 *.tgz
 joblib
+
+.idea

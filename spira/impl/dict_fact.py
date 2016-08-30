@@ -371,26 +371,3 @@ def _online_dl_slow(X,
                 print("Iteration %i" % (counter[0]))
                 last_call += 1
                 callback()
-
-
-def csr_center_data(X, inplace=False):
-    if not inplace:
-        X = X.copy()
-
-    acc_u = np.zeros(X.shape[0])
-    acc_m = np.zeros(X.shape[1])
-
-    n_u = X.getnnz(axis=1)
-    n_m = X.getnnz(axis=0)
-    n_u[n_u == 0] = 1
-    n_m[n_m == 0] = 1
-    for i in range(2):
-        w_u = X.sum(axis=1).A[:, 0] / n_u
-        for i, (left, right) in enumerate(zip(X.indptr[:-1], X.indptr[1:])):
-            X.data[left:right] -= w_u[i]
-        w_m = X.sum(axis=0).A[0] / n_m
-        X.data -= w_m.take(X.indices, mode='clip')
-        acc_u += w_u
-        acc_m += w_m
-
-    return X, acc_u, acc_m

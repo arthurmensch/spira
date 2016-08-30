@@ -23,7 +23,7 @@ class ExplicitMF(BaseEstimator):
         self.tol = tol
         self.callback = callback
         self.random_state = random_state
-        self.normalize = normalize
+        self.detrend = normalize
         self.verbose = verbose
 
     def _init(self, X, rng):
@@ -36,7 +36,7 @@ class ExplicitMF(BaseEstimator):
     def fit(self, X):
         X = sp.csr_matrix(X, dtype=np.float64)
 
-        if self.normalize:
+        if self.detrend:
             (X, self.row_mean_, self.col_mean_) = csr_center_data(X)
 
         n_rows, n_cols = X.shape
@@ -65,7 +65,7 @@ class ExplicitMF(BaseEstimator):
         out = np.zeros_like(X.data)
         _predict(out, X.indices, X.indptr, self.P_, self.Q_)
 
-        if self.normalize:
+        if self.detrend:
             for i in range(X.shape[0]):
                 out[X.indptr[i]:X.indptr[i + 1]] += self.row_mean_[i]
             out += self.col_mean_.take(X.indices, mode='clip')
